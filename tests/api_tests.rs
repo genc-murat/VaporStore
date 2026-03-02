@@ -4,6 +4,7 @@ use axum::{
 };
 use std::sync::Arc;
 use tower::ServiceExt;
+use tracing::info;
 use vaporstore::{app, storage::ObjectStore};
 
 #[tokio::test]
@@ -23,6 +24,21 @@ async fn test_full_api_flow() {
         .await
         .unwrap();
 
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // 1b. Create Bucket (with trailing slash)
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/test-bucket-slash/")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // If this is 404, then we found the issue!
     assert_eq!(response.status(), StatusCode::OK);
 
     // 2. Put Object

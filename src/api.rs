@@ -106,6 +106,19 @@ pub async fn delete_bucket(
     }
 }
 
+/// HEAD /{bucket} — Check if bucket exists
+pub async fn head_bucket(
+    State(store): State<SharedStore>,
+    Path(bucket): Path<String>,
+) -> Response {
+    debug!("HeadBucket: {}", bucket);
+    if store.bucket_exists(&bucket) {
+        StatusCode::OK.into_response()
+    } else {
+        ApiError::NoSuchBucket(bucket).into_response()
+    }
+}
+
 /// GET /{bucket}?list-type=2&prefix=...&delimiter=... — List objects
 pub async fn list_objects(
     State(store): State<SharedStore>,
@@ -301,6 +314,19 @@ pub async fn delete_object(
 }
 
 /// Fallback for unknown routes
-pub async fn not_found() -> Response {
-    ApiError::NotFound.into_response()
+pub async fn not_found(req: axum::http::Request<axum::body::Body>) -> Response {
+    let method = req.method().to_string();
+    let uri = req.uri().to_string();
+    info!("404 Not Found: {} {}", method, uri);
+    
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let err = crate::xml::S3Error {
+        code: "NotFound".to_string(),
+        message: format!("The specified resource was not found. (Path: {})", uri),
+        resource: uri,
+        request_id,
+    };
+
+    let body = crate::xml::to_xml(&err).unwrap_or_else(|_| "<Error/>".to_string());
+    (StatusCode::NOT_FOUND, [("Content-Type", "application/xml")], body).into_response()
 }

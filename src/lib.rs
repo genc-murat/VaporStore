@@ -16,14 +16,22 @@ pub fn app(store: api::SharedStore) -> Router {
     Router::new()
         // Service-level
         .route("/", get(api::list_buckets))
-        // Bucket operations (GET + PUT + DELETE on same path)
+        // Bucket operations (handle both /bucket and /bucket/ for compatibility)
         .route(
             "/{bucket}",
             get(api::list_objects)
                 .put(api::create_bucket)
-                .delete(api::delete_bucket),
+                .delete(api::delete_bucket)
+                .head(api::head_bucket),
         )
-        // Object operations — catch-all key to support slashes in key names
+        .route(
+            "/{bucket}/",
+            get(api::list_objects)
+                .put(api::create_bucket)
+                .delete(api::delete_bucket)
+                .head(api::head_bucket),
+        )
+        // Object operations
         .route(
             "/{bucket}/{*key}",
             get(api::get_object)
