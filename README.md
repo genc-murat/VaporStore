@@ -1,25 +1,22 @@
-# VaporStore: In-Memory S3-Compatible Object Storage
+# VaporStore: S3-Compatible Object Storage
 
-# VaporStore
-
-Minimal, fast, in-memory S3-compatible object storage. Written with Rust + Axum.
+Minimal, fast, S3-compatible object storage with optional disk persistence. Written with Rust + Axum.
 
 ## Features
 
--  Compatible with AWS CLI and S3 SDKs (path-style addressing).
--  **Bucket Validation**: Enforces S3 naming rules (3-63 characters, lowercase alphanumeric).
--  **Observability**: Integrated tracing spans and structured logging via `tower-http`.
--  **CORS & Compression**: Pre-configured CORS for web browsers and Gzip/Brotli/Zstd compression.
--  **S3 Compliance**: Mandatory `Date` and `x-amz-request-id` headers in all responses.
--  TTL for every object (default **5 minutes**).
--  Maximum file size **5 MB**.
--  Automatic background TTL cleanup (every 30 seconds).
--  **Authentication**: Optional AWS Signature V4 simulation or Bearer Token support via `VAPORSTORE_AUTH=true`.
--  **Multipart Uploads**: Support for `CreateMultipartUpload`, `UploadPart`, and `CompleteMultipartUpload`.
--  **HTTP Range Requests**: Stream media files using `Range: bytes=X-Y`.
--  **Prometheus Metrics**: Exposes bucket/object counts and sizes at `/metrics`.
--  **CopyObject**: Support for `x-amz-copy-source` headers.
--  Zero disk I/O — entirely in-memory data storage via `StorageBackend` trait.
+-   **S3 Compatibility**: Supports AWS CLI and SDKs (path-style addressing).
+-   **Optional Persistence**: Hybrid storage with in-memory speed and optional disk backup (Snapshot + WAL).
+-   **Multipart Uploads**: `CreateMultipartUpload`, `UploadPart`, and `CompleteMultipartUpload` support.
+-   **Range Requests**: Stream media files using `Range: bytes=X-Y`.
+-   **CopyObject**: Support for `x-amz-copy-source` headers.
+-   **Bucket Validation**: Enforces S3 naming rules (3-63 characters, lowercase alphanumeric).
+-   **Observability**: Prometheus metrics at `/metrics` and structured logging via `tracing`.
+-   **Health Check**: Liveness/readiness probe at `/health` returning stats and version.
+-   **Graceful Shutdown**: Handles `SIGTERM` and `Ctrl+C` by waiting for active connections.
+-   **Rate Limiting**: Optional IP-based rate limiting via `tower-governor`.
+-   **TTL & Reaper**: Automatic expiry for objects (configurable default TTL and reaper interval).
+-   **CORS & Compression**: Pre-configured permissive CORS and multi-algorithm compression.
+-   **Security**: Optional AWS Signature V4 or Bearer Token auth (`VAPORSTORE_AUTH=true`).
 
 ## Running
 
@@ -54,7 +51,7 @@ aws --endpoint-url $ENDPOINT s3 mb s3://my-bucket
 # Upload a file
 aws --endpoint-url $ENDPOINT s3 cp ./myfile.txt s3://my-bucket/myfile.txt
 
-# Upload with custom TTL (using x-amz-meta-ttl-seconds header)
+# Upload with custom TTL (using metadata)
 aws --endpoint-url $ENDPOINT s3 cp ./myfile.txt s3://my-bucket/myfile.txt \
   --metadata ttl-seconds=60
 
@@ -63,13 +60,17 @@ aws --endpoint-url $ENDPOINT s3 ls s3://my-bucket/
 
 # Download a file
 aws --endpoint-url $ENDPOINT s3 cp s3://my-bucket/myfile.txt ./downloaded.txt
-
-# Delete an object
-aws --endpoint-url $ENDPOINT s3 rm s3://my-bucket/myfile.txt
-
-# Delete a bucket (must be empty first)
-aws --endpoint-url $ENDPOINT s3 rb s3://my-bucket
 ```
+
+## Persistence (Experimental)
+
+VaporStore uses a **Hybrid Storage** model when persistence is enabled (`VAPORSTORE_PERSISTENCE=true`):
+
+1.  **Snapshot**: A full state dump saved to disk during graceful shutdown or at regular intervals.
+2.  **WAL (Write-Ahead Log)**: Every mutation (Put, Delete, CreateBucket) is logged to an append-only file before being applied in-memory.
+3.  **Recovery**: On startup, VaporStore loads the latest snapshot and replays all WAL entries since that snapshot to restore the exact state.
+
+This ensures durability while maintaining the performance of in-memory storage.
 
 ## S3 API Compatibility
 
@@ -87,19 +88,22 @@ aws --endpoint-url $ENDPOINT s3 rb s3://my-bucket
 | Multipart Upload | ✅ |
 | Presigned URLs | ❌ |
 
-## Limits
-
-| Feature | Value |
-|---------|-------|
-| Max object size | Unlimited via Multipart (5 MB for single PUT) |
-| Default TTL | 5 minutes (300s) |
-| Custom TTL header | `x-amz-meta-ttl-seconds` |
-| Storage | In-memory (data is lost on restart) |
-
-## Environment Variables
+## Configuration & Limits
 
 | Variable | Default | Description |
-|----------|-----------|---------|
-| `PORT` | `9353` | Port to listen on |
+|----------|---------|-------------|
+| `PORT` | `9353` | Listening port |
 | `RUST_LOG` | `vaporstore=info` | Log level |
-| `VAPORSTORE_AUTH` | `false` | Enable basic auth via AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY |
+| `VAPORSTORE_MAX_OBJECT_SIZE` | `5242880` (5MB) | Max size for single PUT |
+| `VAPORSTORE_DEFAULT_TTL` | `300` | Default object TTL (seconds) |
+| `VAPORSTORE_REAPER_INTERVAL` | `30` | Background cleanup interval (seconds) |
+| `VAPORSTORE_MAX_BUCKETS` | `0` (unlimited) | Max allowed buckets |
+| `VAPORSTORE_MAX_OBJECTS_PER_BUCKET`| `0` (unlimited) | Max objects per bucket |
+| `VAPORSTORE_RATE_LIMIT_RPS` | `0` (disabled) | IP-based request rate limit (RPS) |
+| `VAPORSTORE_PERSISTENCE` | `false` | Enable disk persistence (snapshot + WAL) |
+| `VAPORSTORE_DATA_DIR` | `./data` | Directory for snapshot and WAL files |
+| `VAPORSTORE_WAL` | `true` | Enable Write-Ahead Log |
+| `VAPORSTORE_SNAPSHOT_INTERVAL` | `60` | Periodic snapshot interval (seconds, 0 = only on shutdown) |
+| `VAPORSTORE_AUTH` | `false` | Enable auth (SigV4/Bearer) |
+| `AWS_ACCESS_KEY_ID` | `vaporstore` | Credential if auth enabled |
+| `AWS_SECRET_ACCESS_KEY` | `vaporstore-secret`| Credential if auth enabled |

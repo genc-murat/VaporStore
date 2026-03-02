@@ -23,7 +23,7 @@ use crate::xml::{
 pub type SharedStore = Arc<dyn StorageBackend + Send + Sync>;
 
 fn request_id() -> String {
-    Uuid::new_v4().to_string()
+    Uuid::now_v7().to_string()
 }
 
 fn xml_response(status: StatusCode, body: String) -> Response {
@@ -46,7 +46,6 @@ fn xml_response(status: StatusCode, body: String) -> Response {
 /// GET / — List all buckets
 pub async fn list_buckets(State(store): State<SharedStore>) -> Response {
     let buckets = store.list_buckets().await;
-    let now = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
     let result = ListAllMyBucketsResult {
         owner: Owner {
@@ -55,10 +54,10 @@ pub async fn list_buckets(State(store): State<SharedStore>) -> Response {
         },
         buckets: BucketList {
             bucket: buckets
-                .iter()
-                .map(|(name, _)| BucketEntry {
-                    name: name.clone(),
-                    creation_date: now.clone(),
+                .into_iter()
+                .map(|(name, created)| BucketEntry {
+                    name,
+                    creation_date: created.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
                 })
                 .collect(),
         },
@@ -488,6 +487,35 @@ pub async fn delete_object(
     }
 }
 
+// ─── Health handler ───────────────────────────────────────────────────────────
+
+static START_TIME: std::sync::OnceLock<chrono::DateTime<Utc>> = std::sync::OnceLock::new();
+
+fn uptime_secs() -> i64 {
+    let start = START_TIME.get_or_init(Utc::now);
+    (Utc::now() - *start).num_seconds()
+}
+
+/// GET /health — Liveness / readiness probe
+pub async fn health(State(store): State<SharedStore>) -> Response {
+    let (buckets, objects, bytes) = store.stats().await;
+    let body = format!(
+        r#"{{"status":"ok","version":"{}","uptime_seconds":{},"buckets":{},"objects":{},"bytes":{}}}"#,
+        env!("CARGO_PKG_VERSION"),
+        uptime_secs(),
+        buckets,
+        objects,
+        bytes,
+    );
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json")],
+        body,
+    )
+        .into_response()
+}
+
 // ─── Metrics handler ──────────────────────────────────────────────────────────
 
 #[debug_handler]
@@ -517,12 +545,12 @@ pub async fn metrics(State(store): State<SharedStore>) -> Response {
 
 /// Fallback for unknown routes
 pub async fn not_found(req: axum::http::Request<axum::body::Body>) -> Response {
-    let method = req.method().to_string();
+    let _method = req.method().to_string();
     let uri = req.uri().to_string();
 
     info!("Endpoint not found");
     
-    let request_id = uuid::Uuid::new_v4().to_string();
+    let request_id = uuid::Uuid::now_v7().to_string();
     let now = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
     let err = crate::xml::S3Error {
         code: "NotFound".to_string(),

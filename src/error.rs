@@ -70,7 +70,7 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let request_id = uuid::Uuid::new_v4().to_string();
+        let request_id = uuid::Uuid::now_v7().to_string();
         let err = S3Error {
             code: self.code().to_string(),
             message: self.message(),
