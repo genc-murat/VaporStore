@@ -7,4 +7,16 @@ services:
     environment:
       - RUST_LOG=vaporstore=info
       - PORT=9353
+      - VAPORSTORE_PERSISTENCE=true
+      - VAPORSTORE_DATA_DIR=/app/data
+    volumes:
+      - vaporstore_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9353/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
+
+volumes:
+  vaporstore_data:
