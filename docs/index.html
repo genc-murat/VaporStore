@@ -6,271 +6,136 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VaporStore | High-Performance S3 Compatible Object Storage</title>
     <meta name="description"
-        content="Minimal, fast, S3-compatible object storage with optional disk persistence. Written in Rust for maximum performance.">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800;900&display=swap" rel="stylesheet">
+        content="Minimal, fast, S3-compatible object storage with optional disk persistence. Built in Rust for maximum performance.">
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
-    <header>
-        <div class="container">
-            <nav>
-                <div class="logo">VaporStore</div>
-                <div class="nav-links">
-                    <a href="#features">Features</a>
-                    <a href="#docs">Docs</a>
-                    <a href="https://github.com/genc-murat/VaporStore">GitHub</a>
-                </div>
-            </nav>
+    <nav class="glass">
+        <div class="logo">VaporStore</div>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#api">API</a>
+            <a href="#docs">Docs</a>
+            <a href="https://github.com/genc-murat/VaporStore">GitHub</a>
         </div>
-    </header>
+    </nav>
 
     <main>
-        <section class="hero">
-            <div class="container">
-                <h1>S3 Storage, Redefined.</h1>
-                <p>Minimal, fast, S3-compatible object storage with optional disk persistence. Built with Rust + Axum
-                    for extreme performance.</p>
-                <div class="cta-buttons">
-                    <a href="https://github.com/genc-murat/VaporStore" class="btn btn-primary">Get Started</a>
-                    <a href="#features" class="btn btn-secondary">Learn More</a>
+        <section class="hero container">
+            <div class="hero-grid">
+                <div class="hero-content">
+                    <h1>S3 Storage, <br>Evolved.</h1>
+                    <p>Minimalist, high-speed S3-compatible object storage with robust disk persistence. Engineered in
+                        Rust for the modern cloud.</p>
+                    <div class="cta-group">
+                        <a href="#docs" class="btn btn-primary">Deployment</a>
+                        <a href="https://github.com/genc-murat/VaporStore" class="btn btn-secondary">Source Code</a>
+                    </div>
+                </div>
+                <div class="hero-image">
+                    <img src="hero.png" alt="VaporStore Visual Representation">
                 </div>
             </div>
         </section>
 
-        <section id="features" class="features">
-            <div class="container">
-                <div class="section-title">
-                    <h2>Everything you need.</h2>
-                    <p>Designed for speed, reliability, and ease of use.</p>
+        <section id="features" class="container reveal">
+            <div class="section-title">
+                <h2>Designed for Speed.</h2>
+                <p>Advanced features meets minimalist implementation.</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card glass">
+                    <h3><span>⚡</span> S3 Native</h3>
+                    <p>Native support for AWS CLI, SDKs, and standard tools. Zero learning curve for S3 workflows.</p>
                 </div>
-                <div class="features-grid">
-                    <div class="feature-card">
-                        <h3>S3 Compatible</h3>
-                        <p>Works seamlessly with AWS CLI, SDKs, and any tool that speaks the S3 protocol. Support for
-                            path-style addressing.</p>
-                    </div>
-                    <div class="feature-card">
-                        <h3>Rust Engineered</h3>
-                        <p>Leverages Rust's memory safety and performance. Built on Axum for a robust, concurrent API
-                            layer.</p>
-                    </div>
-                    <div class="feature-card">
-                        <h3>Hybrid Persistence</h3>
-                        <p>In-memory speed with optional disk backup. Uses Snapshots and Write-Ahead Logs (WAL) for
-                            durability without the lag.</p>
-                    </div>
-                    <div class="feature-card">
-                        <h3>Multipart & Range</h3>
-                        <p>Handles large file uploads via Multipart and enables media streaming with fine-grained Range
-                            requests.</p>
-                    </div>
-                    <div class="feature-card">
-                        <h3>Built-in Observability</h3>
-                        <p>Prometheus metrics out of the box. Monitor your storage performance in real-time.</p>
-                    </div>
-                    <div class="feature-card">
-                        <h3>Security First</h3>
-                        <p>Optional AWS Signature V4 or Bearer Token authentication to keep your data protected.</p>
-                    </div>
+                <div class="feature-card glass">
+                    <h3><span>🦀</span> Rust Core</h3>
+                    <p>Built from the ground up for safety and speed. Minimal memory footprint with massive throughput.
+                    </p>
+                </div>
+                <div class="feature-card glass">
+                    <h3><span>💾</span> Hybrid Persistence</h3>
+                    <p>In-memory speed with industrial-grade durability. Write-Ahead Logs (WAL) and Snapshots for total
+                        safety.</p>
                 </div>
             </div>
         </section>
 
-        <section class="details-section">
-            <div class="container">
-                <div class="detail-row">
-                    <div class="detail-content">
-                        <h2>High Durability Persistence</h2>
-                        <p>VaporStore combines in-memory speed with industrial-grade durability. Our hybrid model
-                            ensures your data stays safe even across restarts.</p>
-                        <br>
-                        <ul style="color: #8b949e; list-style: none;">
-                            <li><strong>✓ Snapshotting:</strong> Periodic state dumps for rapid recovery.</li>
-                            <li><strong>✓ WAL (Write-Ahead Log):</strong> Append-only mutation logging for zero data
-                                loss.</li>
-                            <li><strong>✓ Atomic Deploys:</strong> Consistent state management across the lifecycle.
-                            </li>
-                        </ul>
-                    </div>
-                    <div class="detail-visual">
-                        <span>💾</span>
-                    </div>
-                </div>
+        <section id="api" class="container reveal">
+            <div class="section-title">
+                <h2>Unified Endpoints.</h2>
+                <p>Clean, predictable, and fully observable API surface.</p>
+            </div>
 
-                <div class="detail-row">
-                    <div class="detail-content">
-                        <h2>S3 API Compatibility</h2>
-                        <p>VaporStore implements the most commonly used S3 API operations, making it a drop-in
-                            replacement for development and CI/CD environments.</p>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Operation</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>ListBuckets</td>
-                                    <td class="status-check">✓</td>
-                                </tr>
-                                <tr>
-                                    <td>CreateBucket / DeleteBucket</td>
-                                    <td class="status-check">✓</td>
-                                </tr>
-                                <tr>
-                                    <td>PutObject / GetObject</td>
-                                    <td class="status-check">✓</td>
-                                </tr>
-                                <tr>
-                                    <td>Multipart Upload</td>
-                                    <td class="status-check">✓</td>
-                                </tr>
-                                <tr>
-                                    <td>CopyObject</td>
-                                    <td class="status-check">✓</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+            <div class="endpoint-list glass" style="padding: 2rem;">
+                <div class="endpoint-item">
+                    <span class="method get">GET</span>
+                    <span class="path">/</span>
+                    <span class="desc">Host level: List all buckets</span>
+                </div>
+                <div class="endpoint-item">
+                    <span class="method get">GET</span>
+                    <span class="path">/{bucket}</span>
+                    <span class="desc">Bucket level: List objects</span>
+                </div>
+                <div class="endpoint-item">
+                    <span class="method put">PUT</span>
+                    <span class="path">/{bucket}</span>
+                    <span class="desc">Create infrastructure: New bucket</span>
+                </div>
+                <div class="endpoint-item">
+                    <span class="method get">GET</span>
+                    <span class="path">/{bucket}/{key}</span>
+                    <span class="desc">Retrieve object: Supports Range mapping</span>
+                </div>
+                <div class="endpoint-item">
+                    <span class="method put">PUT</span>
+                    <span class="path">/{bucket}/{key}</span>
+                    <span class="desc">Upload data: Key-value object mapping</span>
+                </div>
+                <div class="endpoint-item">
+                    <span class="method get">GET</span>
+                    <span class="path">/health</span>
+                    <span class="desc">Diagnostics & Uptime stats</span>
+                </div>
+                <div class="endpoint-item">
+                    <span class="method get">GET</span>
+                    <span class="path">/metrics</span>
+                    <span class="desc">Full Prometheus observability</span>
                 </div>
             </div>
         </section>
 
-        <section class="features" style="background-color: #090c10;">
-            <div class="container">
-                <div class="section-title">
-                    <h2>Technical Stack</h2>
-                    <p>Built with enterprise-ready technologies for maximum reliability.</p>
-                </div>
-                <div class="tech-grid">
-                    <div class="tech-card">
-                        <strong>Rust</strong>
-                        <p>Memory safety & bare-metal speed.</p>
-                    </div>
-                    <div class="tech-card">
-                        <strong>Axum</strong>
-                        <p>High-concurrency web framework.</p>
-                    </div>
-                    <div class="tech-card">
-                        <strong>Tower</strong>
-                        <p>Modular service middleware layer.</p>
-                    </div>
-                    <div class="tech-card">
-                        <strong>Serde</strong>
-                        <p>Zero-copy XML/JSON serialization.</p>
-                    </div>
-                </div>
+        <section id="docs" class="container reveal">
+            <div class="section-title">
+                <h2>Quick Start.</h2>
+                <p>Deploy in milliseconds with Docker.</p>
             </div>
-        </section>
+            <div class="glass" style="padding: 3rem;">
+                <p style="margin-bottom: 1rem; color: var(--accent-blue);">Pull and Run:</p>
+                <code
+                    style="display: block; background: rgba(0,0,0,0.3); padding: 1.5rem; border-radius: 12px; margin-bottom: 2rem;">
+                    docker pull muratgenc/vaporstore:v0.1.6<br>
+                    docker run -p 9353:9353 muratgenc/vaporstore:v0.1.6
+                </code>
 
-        <section class="features">
-            <div class="container">
-                <div class="section-title">
-                    <h2>API Endpoints</h2>
-                    <p>Everything you need for S3 compliance and management.</p>
-                </div>
-
-                <div class="endpoint-list">
-                    <div class="endpoint-item">
-                        <span class="method get">GET</span>
-                        <span class="path">/</span>
-                        <span class="desc">Host level: List all buckets</span>
-                    </div>
-                    <div class="endpoint-item">
-                        <span class="method get">GET</span>
-                        <span class="path">/{bucket}</span>
-                        <span class="desc">Bucket level: List objects within a bucket</span>
-                    </div>
-                    <div class="endpoint-item">
-                        <span class="method put">PUT</span>
-                        <span class="path">/{bucket}</span>
-                        <span class="desc">Create a new bucket</span>
-                    </div>
-                    <div class="endpoint-item">
-                        <span class="method get">GET</span>
-                        <span class="path">/{bucket}/{key}</span>
-                        <span class="desc">Retrieve object data (Supports Range)</span>
-                    </div>
-                    <div class="endpoint-item">
-                        <span class="method put">PUT</span>
-                        <span class="path">/{bucket}/{key}</span>
-                        <span class="desc">Upload object or Copy from another source</span>
-                    </div>
-                    <div class="endpoint-item">
-                        <span class="method post">POST</span>
-                        <span class="path">/{bucket}/{key}?uploads</span>
-                        <span class="desc">Initiate Multipart Upload</span>
-                    </div>
-                    <div class="endpoint-item">
-                        <span class="method get">GET</span>
-                        <span class="path">/health</span>
-                        <span class="desc">Diagnostics: Version, Uptime, Internal Stats</span>
-                    </div>
-                    <div class="endpoint-item">
-                        <span class="method get">GET</span>
-                        <span class="path">/metrics</span>
-                        <span class="desc">Observability: Prometheus format metrics</span>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <section class="features" style="background-color: #090c10;">
-            <div class="container">
-                <div class="section-title">
-                    <h2>Configuration</h2>
-                    <p>Fine-tune VaporStore using environment variables.</p>
-                </div>
-                <div class="config-grid">
-                    <div class="config-item">
-                        <code>PORT</code>
-                        <p>Default: 9353. Listening port for the API.</p>
-                    </div>
-                    <div class="config-item">
-                        <code>VAPORSTORE_PERSISTENCE</code>
-                        <p>Enable/disable disk persistence (Snapshot + WAL).</p>
-                    </div>
-                    <div class="config-item">
-                        <code>VAPORSTORE_MAX_OBJECT_SIZE</code>
-                        <p>Limit the maximum size of a single PUT request.</p>
-                    </div>
-                    <div class="config-item">
-                        <code>VAPORSTORE_AUTH</code>
-                        <p>Toggle SigV4 or Bearer Token authentication.</p>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <section id="docs" class="quick-start">
-            <div class="container">
-                <div class="section-title">
-                    <h2>Quick Start</h2>
-                    <p>Get up and running in seconds.</p>
-                </div>
-                <p>Run via Docker:</p>
-                <pre><code>docker pull muratgenc/vaporstore:v0.1.6
-docker run -p 9353:9353 muratgenc/vaporstore:v0.1.6</code></pre>
-
-                <p style="margin-top: 2rem;">Test with AWS CLI:</p>
-                <pre><code>export AWS_ACCESS_KEY_ID=any
-export AWS_SECRET_ACCESS_KEY=any
-ENDPOINT=http://localhost:9353
-
-aws --endpoint-url $ENDPOINT s3 mb s3://my-bucket</code></pre>
+                <p style="margin-bottom: 1rem; color: var(--accent-purple);">Test Connection:</p>
+                <code style="display: block; background: rgba(0,0,0,0.3); padding: 1.5rem; border-radius: 12px;">
+                    export AWS_ACCESS_KEY_ID=any<br>
+                    export AWS_SECRET_ACCESS_KEY=any<br>
+                    aws --endpoint-url http://localhost:9353 s3 mb s3://test-bucket
+                </code>
             </div>
         </section>
     </main>
 
-    <footer>
-        <div class="container">
-            <p>&copy; 2026 VaporStore Project. Documentation hosted on GitHub Pages.</p>
-        </div>
+    <footer class="container"
+        style="padding: 4rem 0; text-align: center; color: var(--text-secondary); border-top: 1px solid var(--glass-border); margin-top: 8rem;">
+        <p>&copy; 2026 VaporStore Project. Documentation powered by Open Source.</p>
     </footer>
+
+    <script src="script.js"></script>
 </body>
 
 </html>
