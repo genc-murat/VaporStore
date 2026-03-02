@@ -4,7 +4,6 @@ use axum::{
 };
 use std::sync::Arc;
 use tower::ServiceExt;
-use tracing::info;
 use vaporstore::{app, storage::ObjectStore};
 
 #[tokio::test]
