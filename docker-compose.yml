@@ -1,0 +1,10 @@
+services:
+  vaporstore:
+    build: .
+    container_name: vaporstore
+    ports:
+      - "9353:9353"
+    environment:
+      - RUST_LOG=vaporstore=info
+      - PORT=9353
+    restart: unless-stopped
