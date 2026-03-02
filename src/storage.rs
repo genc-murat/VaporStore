@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use uuid::Uuid;
 
 use bytes::Bytes;
 use chrono::{DateTime, Duration, Utc};
@@ -31,10 +32,14 @@ impl StorageObject {
 /// Per-bucket storage: key → Arc<StorageObject> (zero-copy on read)
 type BucketMap = DashMap<String, Arc<StorageObject>>;
 
-/// Top-level store: bucket_name → BucketMap
-#[derive(Default, Clone)]
-pub struct ObjectStore {
-    buckets: DashMap<String, BucketMap>,
+#[derive(Debug)]
+pub struct MultipartUpload {
+    pub upload_id: String,
+    pub bucket: String,
+    pub key: String,
+    pub parts: DashMap<usize, Bytes>,
+    pub metadata: HashMap<String, String>,
+    pub content_type: Option<String>,
 }
 
 #[derive(Debug)]
@@ -45,16 +50,96 @@ pub enum StoreError {
     EntityTooLarge,
     BucketNotEmpty(String),
     InvalidBucketName(String),
+    InvalidRequest(String),
 }
 
-impl ObjectStore {
+#[derive(Debug)]
+pub struct ObjectMeta {
+    pub key: String,
+    pub size: usize,
+    pub etag: String,
+    pub last_modified: DateTime<Utc>,
+}
+
+#[derive(Debug)]
+pub struct ListResult {
+    pub contents: Vec<ObjectMeta>,
+    pub common_prefixes: Vec<String>,
+    pub is_truncated: bool,
+}
+
+use async_trait::async_trait;
+
+#[async_trait]
+pub trait StorageBackend: Send + Sync {
+    async fn create_bucket(&self, bucket: &str) -> Result<(), StoreError>;
+    async fn delete_bucket(&self, bucket: &str) -> Result<(), StoreError>;
+    async fn list_buckets(&self) -> Vec<(String, DateTime<Utc>)>;
+    async fn bucket_exists(&self, bucket: &str) -> bool;
+
+    async fn put_object(
+        &self,
+        bucket: &str,
+        key: &str,
+        data: Bytes,
+        content_type: Option<String>,
+        ttl_secs: Option<i64>,
+        metadata: HashMap<String, String>,
+    ) -> Result<String, StoreError>;
+
+    async fn get_object(&self, bucket: &str, key: &str) -> Result<Arc<StorageObject>, StoreError>;
+    async fn head_object(&self, bucket: &str, key: &str) -> Result<Arc<StorageObject>, StoreError>;
+    async fn delete_object(&self, bucket: &str, key: &str) -> Result<(), StoreError>;
+
+    async fn list_objects(
+        &self,
+        bucket: &str,
+        prefix: Option<&str>,
+        delimiter: Option<&str>,
+        max_keys: usize,
+    ) -> Result<ListResult, StoreError>;
+
+    async fn cleanup_expired(&self) -> usize;
+    async fn stats(&self) -> (usize, usize, usize);
+
+    async fn create_multipart_upload(&self, bucket: &str, key: &str, content_type: Option<String>, metadata: HashMap<String, String>) -> Result<String, StoreError>;
+    async fn upload_part(&self, bucket: &str, key: &str, upload_id: &str, part_number: usize, data: Bytes) -> Result<String, StoreError>;
+    async fn complete_multipart_upload(&self, bucket: &str, key: &str, upload_id: &str, parts_list: Vec<(usize, String)>) -> Result<String, StoreError>;
+    async fn abort_multipart_upload(&self, bucket: &str, key: &str, upload_id: &str) -> Result<(), StoreError>;
+}
+
+/// Top-level store: bucket_name → BucketMap
+#[derive(Default, Clone)]
+pub struct InMemoryBackend {
+    buckets: DashMap<String, BucketMap>,
+    uploads: DashMap<String, Arc<MultipartUpload>>,
+}
+
+impl InMemoryBackend {
     pub fn new() -> Self {
         Self::default()
     }
 
-    // ─── Bucket operations ────────────────────────────────────────────────────
+    fn validate_bucket_name(&self, bucket: &str) -> Result<(), StoreError> {
+        if bucket.len() < 3 || bucket.len() > 63 {
+            return Err(StoreError::InvalidBucketName(bucket.to_string()));
+        }
+        if !bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-') {
+            return Err(StoreError::InvalidBucketName(bucket.to_string()));
+        }
+        if bucket.starts_with('.') || bucket.ends_with('.') || bucket.starts_with('-') || bucket.ends_with('-') {
+            return Err(StoreError::InvalidBucketName(bucket.to_string()));
+        }
+        if bucket.contains("..") {
+            return Err(StoreError::InvalidBucketName(bucket.to_string()));
+        }
+        Ok(())
+    }
+}
 
-    pub fn create_bucket(&self, bucket: &str) -> Result<(), StoreError> {
+#[async_trait]
+impl StorageBackend for InMemoryBackend {
+    async fn create_bucket(&self, bucket: &str) -> Result<(), StoreError> {
         self.validate_bucket_name(bucket)?;
         if self.buckets.contains_key(bucket) {
             return Err(StoreError::BucketAlreadyExists(bucket.to_string()));
@@ -63,7 +148,7 @@ impl ObjectStore {
         Ok(())
     }
 
-    pub fn delete_bucket(&self, bucket: &str) -> Result<(), StoreError> {
+    async fn delete_bucket(&self, bucket: &str) -> Result<(), StoreError> {
         let entry = self.buckets.get(bucket).ok_or_else(|| StoreError::NoSuchBucket(bucket.to_string()))?;
         if !entry.is_empty() {
             return Err(StoreError::BucketNotEmpty(bucket.to_string()));
@@ -73,21 +158,18 @@ impl ObjectStore {
         Ok(())
     }
 
-    pub fn list_buckets(&self) -> Vec<(String, DateTime<Utc>)> {
+    async fn list_buckets(&self) -> Vec<(String, DateTime<Utc>)> {
         self.buckets
             .iter()
             .map(|e| (e.key().clone(), Utc::now()))
             .collect()
     }
 
-    pub fn bucket_exists(&self, bucket: &str) -> bool {
+    async fn bucket_exists(&self, bucket: &str) -> bool {
         self.buckets.contains_key(bucket)
     }
 
-    // ─── Object operations ────────────────────────────────────────────────────
-
-    /// Store an object. Returns the ETag.
-    pub fn put_object(
+    async fn put_object(
         &self,
         bucket: &str,
         key: &str,
@@ -127,8 +209,7 @@ impl ObjectStore {
         Ok(etag)
     }
 
-    /// Retrieve an object (returns Arc — zero-copy, no allocation).
-    pub fn get_object(&self, bucket: &str, key: &str) -> Result<Arc<StorageObject>, StoreError> {
+    async fn get_object(&self, bucket: &str, key: &str) -> Result<Arc<StorageObject>, StoreError> {
         let bucket_map = self
             .buckets
             .get(bucket)
@@ -145,12 +226,11 @@ impl ObjectStore {
         Ok(Arc::clone(obj.value()))
     }
 
-    /// Retrieve only metadata (HEAD) — same zero-copy Arc path.
-    pub fn head_object(&self, bucket: &str, key: &str) -> Result<Arc<StorageObject>, StoreError> {
-        self.get_object(bucket, key)
+    async fn head_object(&self, bucket: &str, key: &str) -> Result<Arc<StorageObject>, StoreError> {
+        self.get_object(bucket, key).await
     }
 
-    pub fn delete_object(&self, bucket: &str, key: &str) -> Result<(), StoreError> {
+    async fn delete_object(&self, bucket: &str, key: &str) -> Result<(), StoreError> {
         let bucket_map = self
             .buckets
             .get(bucket)
@@ -160,8 +240,7 @@ impl ObjectStore {
         Ok(())
     }
 
-    /// List objects in a bucket with optional prefix and delimiter.
-    pub fn list_objects(
+    async fn list_objects(
         &self,
         bucket: &str,
         prefix: Option<&str>,
@@ -216,7 +295,6 @@ impl ObjectStore {
 
         drop(bucket_map);
 
-        // Batch cleanup of expired objects
         if !expired_keys.is_empty() {
             if let Some(bm) = self.buckets.get(bucket) {
                 for k in expired_keys {
@@ -237,8 +315,7 @@ impl ObjectStore {
         })
     }
 
-    /// Remove all expired objects across all buckets. Called by background task.
-    pub fn cleanup_expired(&self) -> usize {
+    async fn cleanup_expired(&self) -> usize {
         let now = Utc::now();
         let mut removed = 0usize;
 
@@ -259,173 +336,213 @@ impl ObjectStore {
         removed
     }
 
-    fn validate_bucket_name(&self, bucket: &str) -> Result<(), StoreError> {
-        if bucket.len() < 3 || bucket.len() > 63 {
-            return Err(StoreError::InvalidBucketName(bucket.to_string()));
+    async fn stats(&self) -> (usize, usize, usize) {
+        let bucket_count = self.buckets.len();
+        let mut object_count = 0;
+        let mut total_bytes = 0;
+
+        for entry in self.buckets.iter() {
+            let bucket_map = entry.value();
+            object_count += bucket_map.len();
+            for obj_entry in bucket_map.iter() {
+                total_bytes += obj_entry.value().size;
+            }
         }
-        if !bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-') {
-            return Err(StoreError::InvalidBucketName(bucket.to_string()));
+
+        (bucket_count, object_count, total_bytes)
+    }
+
+    async fn create_multipart_upload(&self, bucket: &str, key: &str, content_type: Option<String>, metadata: HashMap<String, String>) -> Result<String, StoreError> {
+        if !self.buckets.contains_key(bucket) {
+            return Err(StoreError::NoSuchBucket(bucket.into()));
         }
-        if bucket.starts_with('.') || bucket.ends_with('.') || bucket.starts_with('-') || bucket.ends_with('-') {
-            return Err(StoreError::InvalidBucketName(bucket.to_string()));
+
+        let upload_id = Uuid::new_v4().to_string();
+        self.uploads.insert(upload_id.clone(), Arc::new(MultipartUpload {
+            upload_id: upload_id.clone(),
+            bucket: bucket.into(),
+            key: key.into(),
+            parts: DashMap::new(),
+            metadata,
+            content_type,
+        }));
+
+        Ok(upload_id)
+    }
+
+    async fn upload_part(&self, bucket: &str, key: &str, upload_id: &str, part_number: usize, data: Bytes) -> Result<String, StoreError> {
+        let upload = self.uploads.get(upload_id).map(|u| u.clone()).ok_or_else(|| StoreError::InvalidRequest("NoSuchUpload".into()))?;
+        if upload.bucket != bucket || upload.key != key {
+            return Err(StoreError::InvalidRequest("Upload metadata mismatch".into()));
         }
-        if bucket.contains("..") {
-            return Err(StoreError::InvalidBucketName(bucket.to_string()));
+
+        let etag = format!("{:x}", md5::compute(&data));
+        upload.parts.insert(part_number, data);
+        
+        Ok(etag)
+    }
+
+    async fn complete_multipart_upload(&self, bucket: &str, key: &str, upload_id: &str, parts_list: Vec<(usize, String)>) -> Result<String, StoreError> {
+        let upload = self.uploads.get(upload_id).map(|u| u.clone()).ok_or_else(|| StoreError::InvalidRequest("NoSuchUpload".into()))?;
+        if upload.bucket != bucket || upload.key != key {
+            return Err(StoreError::InvalidRequest("Upload metadata mismatch".into()));
         }
+
+        let mut total_size = 0;
+        let mut combined_data = Vec::new();
+        
+        let mut sorted_parts = parts_list;
+        sorted_parts.sort_by_key(|p| p.0);
+
+        for (part_num, expected_etag) in sorted_parts {
+            let part_data = upload.parts.get(&part_num).ok_or_else(|| StoreError::InvalidRequest(format!("Missing part {}", part_num)))?;
+            let etag = format!("{:x}", md5::compute(&*part_data));
+            if etag != expected_etag.trim_matches('"') {
+                return Err(StoreError::InvalidRequest(format!("ETag mismatch for part {}", part_num)));
+            }
+            total_size += part_data.len();
+            combined_data.extend_from_slice(&part_data);
+        }
+
+        let result_etag = self.put_object(bucket, key, Bytes::from(combined_data), upload.content_type.clone(), None, upload.metadata.clone()).await?;
+        
+        self.uploads.remove(upload_id);
+
+        Ok(result_etag)
+    }
+
+    async fn abort_multipart_upload(&self, bucket: &str, key: &str, upload_id: &str) -> Result<(), StoreError> {
+        let upload = self.uploads.get(upload_id).map(|u| u.clone()).ok_or_else(|| StoreError::InvalidRequest("NoSuchUpload".into()))?;
+        if upload.bucket != bucket || upload.key != key {
+            return Err(StoreError::InvalidRequest("Upload metadata mismatch".into()));
+        }
+
+        self.uploads.remove(upload_id);
         Ok(())
     }
-}
-
-#[derive(Debug)]
-pub struct ObjectMeta {
-    pub key: String,
-    pub size: usize,
-    pub etag: String,
-    pub last_modified: DateTime<Utc>,
-}
-
-#[derive(Debug)]
-pub struct ListResult {
-    pub contents: Vec<ObjectMeta>,
-    pub common_prefixes: Vec<String>,
-    pub is_truncated: bool,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use bytes::Bytes;
-    use std::thread;
     use std::time::Duration as StdDuration;
+    use tokio;
 
-    #[test]
-    fn test_bucket_crud() {
-        let store = ObjectStore::new();
+    #[tokio::test]
+    async fn test_bucket_crud() {
+        let store = InMemoryBackend::new();
         let bucket = "test-bucket";
 
-        // Create
-        store.create_bucket(bucket).unwrap();
-        assert!(store.bucket_exists(bucket));
+        store.create_bucket(bucket).await.unwrap();
+        assert!(store.bucket_exists(bucket).await);
 
-        // Duplicate
         assert!(matches!(
-            store.create_bucket(bucket),
+            store.create_bucket(bucket).await,
             Err(StoreError::BucketAlreadyExists(_))
         ));
 
-        // List
-        let buckets = store.list_buckets();
+        let buckets = store.list_buckets().await;
         assert_eq!(buckets.len(), 1);
         assert_eq!(buckets[0].0, bucket);
 
-        // Delete (empty)
-        store.delete_bucket(bucket).unwrap();
-        assert!(!store.bucket_exists(bucket));
+        store.delete_bucket(bucket).await.unwrap();
+        assert!(!store.bucket_exists(bucket).await);
 
-        // Delete (non-existent)
         assert!(matches!(
-            store.delete_bucket(bucket),
+            store.delete_bucket(bucket).await,
             Err(StoreError::NoSuchBucket(_))
         ));
     }
 
-    #[test]
-    fn test_object_crud() {
-        let store = ObjectStore::new();
+    #[tokio::test]
+    async fn test_object_crud() {
+        let store = InMemoryBackend::new();
         let bucket = "bucket-b1";
         let key = "k1";
         let data = Bytes::from("hello");
 
-        store.create_bucket(bucket).unwrap();
+        store.create_bucket(bucket).await.unwrap();
 
-        // Put
         let etag = store
             .put_object(bucket, key, data.clone(), None, None, HashMap::new())
+            .await
             .unwrap();
         assert!(!etag.is_empty());
 
-        // Get
-        let obj = store.get_object(bucket, key).unwrap();
+        let obj = store.get_object(bucket, key).await.unwrap();
         assert_eq!(obj.data, data);
         assert_eq!(obj.etag, etag);
 
-        // Head
-        let head = store.head_object(bucket, key).unwrap();
+        let head = store.head_object(bucket, key).await.unwrap();
         assert_eq!(head.etag, etag);
 
-        // Delete
-        store.delete_object(bucket, key).unwrap();
+        store.delete_object(bucket, key).await.unwrap();
         assert!(matches!(
-            store.get_object(bucket, key),
+            store.get_object(bucket, key).await,
             Err(StoreError::NoSuchKey(_))
         ));
     }
 
-    #[test]
-    fn test_ttl_expiry() {
-        let store = ObjectStore::new();
+    #[tokio::test]
+    async fn test_ttl_expiry() {
+        let store = InMemoryBackend::new();
         let bucket = "ttl-bucket";
         let key = "expired-key";
         let data = Bytes::from("gone soon");
 
-        store.create_bucket(bucket).unwrap();
+        store.create_bucket(bucket).await.unwrap();
 
-        // Put with 1s TTL
         store
             .put_object(bucket, key, data, None, Some(1), HashMap::new())
+            .await
             .unwrap();
 
-        // Should exist initially
-        assert!(store.get_object(bucket, key).is_ok());
+        assert!(store.get_object(bucket, key).await.is_ok());
 
-        // Wait for expiry
-        thread::sleep(StdDuration::from_millis(1100));
+        tokio::time::sleep(StdDuration::from_millis(1100)).await;
 
-        // Should be gone (lazy removal)
         assert!(matches!(
-            store.get_object(bucket, key),
+            store.get_object(bucket, key).await,
             Err(StoreError::NoSuchKey(_))
         ));
     }
 
-    #[test]
-    fn test_list_objects() {
-        let store = ObjectStore::new();
+    #[tokio::test]
+    async fn test_list_objects() {
+        let store = InMemoryBackend::new();
         let bucket = "list-bucket";
-        store.create_bucket(bucket).unwrap();
+        store.create_bucket(bucket).await.unwrap();
 
         let keys = vec!["a/1.txt", "a/2.txt", "b/1.txt", "c.txt"];
         for k in &keys {
             store
                 .put_object(bucket, k, Bytes::from("data"), None, None, HashMap::new())
+                .await
                 .unwrap();
         }
 
-        // List all
-        let res = store.list_objects(bucket, None, None, 1000).unwrap();
+        let res = store.list_objects(bucket, None, None, 1000).await.unwrap();
         assert_eq!(res.contents.len(), 4);
 
-        // Prefix
-        let res = store.list_objects(bucket, Some("a/"), None, 1000).unwrap();
+        let res = store.list_objects(bucket, Some("a/"), None, 1000).await.unwrap();
         assert_eq!(res.contents.len(), 2);
 
-        // Delimiter
-        let res = store.list_objects(bucket, None, Some("/"), 1000).unwrap();
-        // "a/" and "b/" are prefixes
+        let res = store.list_objects(bucket, None, Some("/"), 1000).await.unwrap();
         assert_eq!(res.common_prefixes.len(), 2);
         assert!(res.common_prefixes.contains(&"a/".to_string()));
         assert!(res.common_prefixes.contains(&"b/".to_string()));
     }
 
-    #[test]
-    fn test_entity_too_large() {
-        let store = ObjectStore::new();
+    #[tokio::test]
+    async fn test_entity_too_large() {
+        let store = InMemoryBackend::new();
         let bucket = "large-bucket";
-        store.create_bucket(bucket).unwrap();
+        store.create_bucket(bucket).await.unwrap();
 
         let large_data = Bytes::from(vec![0u8; MAX_OBJECT_SIZE + 1]);
         assert!(matches!(
-            store.put_object(bucket, "too-big", large_data, None, None, HashMap::new()),
+            store.put_object(bucket, "too-big", large_data, None, None, HashMap::new()).await,
             Err(StoreError::EntityTooLarge)
         ));
     }

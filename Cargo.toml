@@ -1,6 +1,6 @@
 [package]
 name = "vaporstore"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 description = "A minimal, fast, in-memory S3-compatible object storage"
 
@@ -27,6 +27,7 @@ uuid = { version = "1", features = ["v4"] }
 http = "1"
 tower = "0.5.3"
 tower-http = { version = "0.6.8", features = ["trace", "cors", "normalize-path", "compression-full"] }
+async-trait = "0.1.89"
 
 [profile.release]
 opt-level = 3

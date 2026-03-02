@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
 use tracing::info;
-use vaporstore::{app, storage};
+use vaporstore::{app, storage, storage::StorageBackend};
 
 #[tokio::main]
 async fn main() {
@@ -20,7 +20,7 @@ async fn main() {
         .and_then(|p| p.parse().ok())
         .unwrap_or(9353);
 
-    let store = Arc::new(storage::ObjectStore::new());
+    let store: Arc<dyn StorageBackend + Send + Sync> = Arc::new(storage::InMemoryBackend::new());
 
     // ── Background TTL reaper (every 30 seconds) ──────────────────────────────
     {
@@ -30,9 +30,7 @@ async fn main() {
             loop {
                 interval.tick().await;
                 let store_clone = Arc::clone(&reaper_store);
-                let removed = tokio::task::spawn_blocking(move || store_clone.cleanup_expired())
-                    .await
-                    .unwrap_or(0);
+                let removed = store_clone.cleanup_expired().await;
                 if removed > 0 {
                     info!("TTL reaper: removed {} expired object(s)", removed);
                 }

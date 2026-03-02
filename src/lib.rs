@@ -2,6 +2,7 @@ pub mod api;
 pub mod error;
 pub mod storage;
 pub mod xml;
+pub mod auth;
 
 use axum::{
     extract::DefaultBodyLimit,
@@ -23,11 +24,13 @@ pub fn app(store: api::SharedStore) -> Router {
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .layer(CompressionLayer::new())
-        .layer(DefaultBodyLimit::max(MAX_OBJECT_SIZE + 1024));
+        .layer(DefaultBodyLimit::max(MAX_OBJECT_SIZE + 1024))
+        .layer(axum::middleware::from_fn(auth::auth_middleware));
 
     let router = Router::new()
         // Service-level
         .route("/", get(api::list_buckets))
+        .route("/metrics", get(api::metrics))
         // Bucket operations
         .route(
             "/{bucket}",
@@ -47,6 +50,7 @@ pub fn app(store: api::SharedStore) -> Router {
         .route(
             "/{bucket}/{*key}",
             get(api::get_object)
+                .post(api::post_object)
                 .put(api::put_object)
                 .head(api::head_object)
                 .delete(api::delete_object),

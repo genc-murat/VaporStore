@@ -102,6 +102,7 @@ impl From<crate::storage::StoreError> for ApiError {
             EntityTooLarge => ApiError::EntityTooLarge,
             BucketNotEmpty(b) => ApiError::BucketNotEmpty(b),
             InvalidBucketName(b) => ApiError::InvalidBucketName(b),
+            InvalidRequest(msg) => ApiError::Internal(msg),
         }
     }
 }

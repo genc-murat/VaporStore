@@ -14,8 +14,12 @@ Minimal, fast, in-memory S3-compatible object storage. Written with Rust + Axum.
 -  TTL for every object (default **5 minutes**).
 -  Maximum file size **5 MB**.
 -  Automatic background TTL cleanup (every 30 seconds).
--  Zero disk I/O — entirely in-memory.
--  No Authentication — for local/dev use only.
+-  **Authentication**: Optional AWS Signature V4 simulation or Bearer Token support via `VAPORSTORE_AUTH=true`.
+-  **Multipart Uploads**: Support for `CreateMultipartUpload`, `UploadPart`, and `CompleteMultipartUpload`.
+-  **HTTP Range Requests**: Stream media files using `Range: bytes=X-Y`.
+-  **Prometheus Metrics**: Exposes bucket/object counts and sizes at `/metrics`.
+-  **CopyObject**: Support for `x-amz-copy-source` headers.
+-  Zero disk I/O — entirely in-memory data storage via `StorageBackend` trait.
 
 ## Running
 
@@ -79,14 +83,15 @@ aws --endpoint-url $ENDPOINT s3 rb s3://my-bucket
 | GetObject | ✅ |
 | HeadObject | ✅ |
 | DeleteObject | ✅ |
-| Multipart Upload | ❌ |
+| CopyObject | ✅ |
+| Multipart Upload | ✅ |
 | Presigned URLs | ❌ |
 
 ## Limits
 
 | Feature | Value |
 |---------|-------|
-| Max object size | 5 MB |
+| Max object size | Unlimited via Multipart (5 MB for single PUT) |
 | Default TTL | 5 minutes (300s) |
 | Custom TTL header | `x-amz-meta-ttl-seconds` |
 | Storage | In-memory (data is lost on restart) |
@@ -97,3 +102,4 @@ aws --endpoint-url $ENDPOINT s3 rb s3://my-bucket
 |----------|-----------|---------|
 | `PORT` | `9353` | Port to listen on |
 | `RUST_LOG` | `vaporstore=info` | Log level |
+| `VAPORSTORE_AUTH` | `false` | Enable basic auth via AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY |
