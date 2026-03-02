@@ -7,6 +7,10 @@ Minimal, fast, in-memory S3-compatible object storage. Written with Rust + Axum.
 ## Features
 
 -  Compatible with AWS CLI and S3 SDKs (path-style addressing).
+-  **Bucket Validation**: Enforces S3 naming rules (3-63 characters, lowercase alphanumeric).
+-  **Observability**: Integrated tracing spans and structured logging via `tower-http`.
+-  **CORS & Compression**: Pre-configured CORS for web browsers and Gzip/Brotli/Zstd compression.
+-  **S3 Compliance**: Mandatory `Date` and `x-amz-request-id` headers in all responses.
 -  TTL for every object (default **5 minutes**).
 -  Maximum file size **5 MB**.
 -  Automatic background TTL cleanup (every 30 seconds).
