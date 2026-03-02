@@ -13,6 +13,7 @@ pub enum ApiError {
     EntityTooLarge,
     BucketNotEmpty(String),
     Internal(String),
+    NotFound,
 }
 
 impl ApiError {
@@ -24,6 +25,7 @@ impl ApiError {
             Self::EntityTooLarge => "EntityTooLarge",
             Self::BucketNotEmpty(_) => "BucketNotEmpty",
             Self::Internal(_) => "InternalError",
+            Self::NotFound => "NotFound",
         }
     }
 
@@ -35,6 +37,7 @@ impl ApiError {
             Self::EntityTooLarge => "Your proposed upload exceeds the maximum allowed object size of 5MB.".to_string(),
             Self::BucketNotEmpty(b) => format!("The bucket '{}' is not empty.", b),
             Self::Internal(m) => m.clone(),
+            Self::NotFound => "The specified resource was not found.".to_string(),
         }
     }
 
@@ -56,6 +59,7 @@ impl ApiError {
             Self::EntityTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::BucketNotEmpty(_) => StatusCode::CONFLICT,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::NotFound => StatusCode::NOT_FOUND,
         }
     }
 }

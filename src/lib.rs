@@ -33,5 +33,6 @@ pub fn app(store: api::SharedStore) -> Router {
         )
         // Explicit body size limit: 5MB + 1KB overhead for headers/metadata
         .layer(DefaultBodyLimit::max(MAX_OBJECT_SIZE + 1024))
+        .fallback(api::not_found)
         .with_state(store)
 }

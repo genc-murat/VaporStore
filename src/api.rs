@@ -299,3 +299,8 @@ pub async fn delete_object(
         Err(e) => ApiError::from(e).into_response(),
     }
 }
+
+/// Fallback for unknown routes
+pub async fn not_found() -> Response {
+    ApiError::NotFound.into_response()
+}
