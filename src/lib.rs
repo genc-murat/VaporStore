@@ -8,15 +8,27 @@ use axum::{
     routing::get,
     Router,
 };
+use tower_http::{
+    cors::CorsLayer,
+    trace::TraceLayer,
+    compression::CompressionLayer,
+};
 use storage::MAX_OBJECT_SIZE;
+use tower::ServiceBuilder;
 
 // ─── App Factory ───────────────────────────────────────────────────────────
 
 pub fn app(store: api::SharedStore) -> Router {
-    Router::new()
+    let middleware = ServiceBuilder::new()
+        .layer(TraceLayer::new_for_http())
+        .layer(CorsLayer::permissive())
+        .layer(CompressionLayer::new())
+        .layer(DefaultBodyLimit::max(MAX_OBJECT_SIZE + 1024));
+
+    let router = Router::new()
         // Service-level
         .route("/", get(api::list_buckets))
-        // Bucket operations (handle both /bucket and /bucket/ for compatibility)
+        // Bucket operations
         .route(
             "/{bucket}",
             get(api::list_objects)
@@ -39,8 +51,9 @@ pub fn app(store: api::SharedStore) -> Router {
                 .head(api::head_object)
                 .delete(api::delete_object),
         )
-        // Explicit body size limit: 5MB + 1KB overhead for headers/metadata
-        .layer(DefaultBodyLimit::max(MAX_OBJECT_SIZE + 1024))
         .fallback(api::not_found)
-        .with_state(store)
+        .layer(middleware)
+        .with_state(store);
+
+    router
 }

@@ -12,6 +12,7 @@ pub enum ApiError {
     BucketAlreadyExists(String),
     EntityTooLarge,
     BucketNotEmpty(String),
+    InvalidBucketName(String),
     Internal(String),
     NotFound,
 }
@@ -24,6 +25,7 @@ impl ApiError {
             Self::BucketAlreadyExists(_) => "BucketAlreadyExists",
             Self::EntityTooLarge => "EntityTooLarge",
             Self::BucketNotEmpty(_) => "BucketNotEmpty",
+            Self::InvalidBucketName(_) => "InvalidBucketName",
             Self::Internal(_) => "InternalError",
             Self::NotFound => "NotFound",
         }
@@ -36,6 +38,7 @@ impl ApiError {
             Self::BucketAlreadyExists(b) => format!("The bucket '{}' already exists.", b),
             Self::EntityTooLarge => "Your proposed upload exceeds the maximum allowed object size of 5MB.".to_string(),
             Self::BucketNotEmpty(b) => format!("The bucket '{}' is not empty.", b),
+            Self::InvalidBucketName(b) => format!("The specified bucket name '{}' is invalid.", b),
             Self::Internal(m) => m.clone(),
             Self::NotFound => "The specified resource was not found.".to_string(),
         }
@@ -43,7 +46,7 @@ impl ApiError {
 
     fn resource(&self) -> String {
         match self {
-            Self::NoSuchBucket(b) | Self::BucketAlreadyExists(b) | Self::BucketNotEmpty(b) => {
+            Self::NoSuchBucket(b) | Self::BucketAlreadyExists(b) | Self::BucketNotEmpty(b) | Self::InvalidBucketName(b) => {
                 format!("/{}", b)
             }
             Self::NoSuchKey(k) => k.clone(),
@@ -58,6 +61,7 @@ impl ApiError {
             Self::BucketAlreadyExists(_) => StatusCode::CONFLICT,
             Self::EntityTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::BucketNotEmpty(_) => StatusCode::CONFLICT,
+            Self::InvalidBucketName(_) => StatusCode::BAD_REQUEST,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::NotFound => StatusCode::NOT_FOUND,
         }
@@ -92,11 +96,12 @@ impl From<crate::storage::StoreError> for ApiError {
     fn from(e: crate::storage::StoreError) -> Self {
         use crate::storage::StoreError::*;
         match e {
-            NoSuchBucket => ApiError::NoSuchBucket("unknown".to_string()),
-            NoSuchKey => ApiError::NoSuchKey("unknown".to_string()),
-            BucketAlreadyExists => ApiError::BucketAlreadyExists("unknown".to_string()),
+            NoSuchBucket(b) => ApiError::NoSuchBucket(b),
+            NoSuchKey(k) => ApiError::NoSuchKey(k),
+            BucketAlreadyExists(b) => ApiError::BucketAlreadyExists(b),
             EntityTooLarge => ApiError::EntityTooLarge,
-            BucketNotEmpty => ApiError::BucketNotEmpty("unknown".to_string()),
+            BucketNotEmpty(b) => ApiError::BucketNotEmpty(b),
+            InvalidBucketName(b) => ApiError::InvalidBucketName(b),
         }
     }
 }

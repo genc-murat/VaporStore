@@ -26,9 +26,15 @@ fn request_id() -> String {
 }
 
 fn xml_response(status: StatusCode, body: String) -> Response {
+    let req_id = request_id();
+    let now = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
     (
         status,
-        [(header::CONTENT_TYPE, "application/xml")],
+        [
+            (header::CONTENT_TYPE, "application/xml"),
+            (header::DATE, now.as_str()),
+            (header::HeaderName::from_static("x-amz-request-id"), req_id.as_str()),
+        ],
         body,
     )
         .into_response()
@@ -68,20 +74,23 @@ pub async fn create_bucket(
     State(store): State<SharedStore>,
     Path(bucket): Path<String>,
 ) -> Response {
-    info!("CreateBucket: {}", bucket);
+    let _span = tracing::info_span!("CreateBucket", bucket = %bucket).entered();
+    info!("Creating bucket");
     match store.create_bucket(&bucket) {
         Ok(_) => {
             let req_id = request_id();
+            let now = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
             (
                 StatusCode::OK,
                 [
                     ("x-amz-request-id", req_id.as_str()),
+                    (header::DATE.as_str(), now.as_str()),
                     ("Location", &format!("/{}", bucket)),
                 ],
             )
                 .into_response()
         }
-        Err(crate::storage::StoreError::BucketAlreadyExists) => {
+        Err(crate::storage::StoreError::BucketAlreadyExists(_)) => {
             ApiError::BucketAlreadyExists(bucket).into_response()
         }
         Err(e) => ApiError::from(e).into_response(),
@@ -93,13 +102,21 @@ pub async fn delete_bucket(
     State(store): State<SharedStore>,
     Path(bucket): Path<String>,
 ) -> Response {
-    info!("DeleteBucket: {}", bucket);
+    let _span = tracing::info_span!("DeleteBucket", bucket = %bucket).entered();
+    info!("Deleting bucket");
     match store.delete_bucket(&bucket) {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(crate::storage::StoreError::NoSuchBucket) => {
+        Ok(_) => {
+            let now = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+            (
+                StatusCode::NO_CONTENT,
+                [(header::DATE.as_str(), now.as_str())],
+            )
+                .into_response()
+        }
+        Err(crate::storage::StoreError::NoSuchBucket(_)) => {
             ApiError::NoSuchBucket(bucket).into_response()
         }
-        Err(crate::storage::StoreError::BucketNotEmpty) => {
+        Err(crate::storage::StoreError::BucketNotEmpty(_)) => {
             ApiError::BucketNotEmpty(bucket).into_response()
         }
         Err(e) => ApiError::from(e).into_response(),
@@ -111,9 +128,15 @@ pub async fn head_bucket(
     State(store): State<SharedStore>,
     Path(bucket): Path<String>,
 ) -> Response {
-    debug!("HeadBucket: {}", bucket);
+    let _span = tracing::info_span!("HeadBucket", bucket = %bucket).entered();
+    debug!("Checking bucket existence");
     if store.bucket_exists(&bucket) {
-        StatusCode::OK.into_response()
+        let now = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+        (
+            StatusCode::OK,
+            [(header::DATE.as_str(), now.as_str())],
+        )
+            .into_response()
     } else {
         ApiError::NoSuchBucket(bucket).into_response()
     }
@@ -125,7 +148,8 @@ pub async fn list_objects(
     Path(bucket): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
-    debug!("ListObjects: {} {:?}", bucket, params);
+    let _span = tracing::info_span!("ListObjects", bucket = %bucket).entered();
+    debug!("Listing objects: {:?}", params);
 
     let prefix = params.get("prefix").map(String::as_str);
     let delimiter = params.get("delimiter").map(String::as_str);
@@ -158,7 +182,7 @@ pub async fn list_objects(
                 Err(e) => ApiError::Internal(e.to_string()).into_response(),
             }
         }
-        Err(crate::storage::StoreError::NoSuchBucket) => {
+        Err(crate::storage::StoreError::NoSuchBucket(_)) => {
             ApiError::NoSuchBucket(bucket).into_response()
         }
         Err(e) => ApiError::from(e).into_response(),
@@ -174,7 +198,8 @@ pub async fn put_object(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    info!("PutObject: {}/{} ({} bytes)", bucket, key, body.len());
+    let _span = tracing::info_span!("PutObject", bucket = %bucket, key = %key).entered();
+    info!("Uploading object ({} bytes)", body.len());
 
     if !store.bucket_exists(&bucket) {
         return ApiError::NoSuchBucket(bucket).into_response();
@@ -220,7 +245,7 @@ pub async fn put_object(
         Err(crate::storage::StoreError::EntityTooLarge) => {
             ApiError::EntityTooLarge.into_response()
         }
-        Err(crate::storage::StoreError::NoSuchBucket) => {
+        Err(crate::storage::StoreError::NoSuchBucket(_)) => {
             ApiError::NoSuchBucket(bucket).into_response()
         }
         Err(e) => ApiError::from(e).into_response(),
@@ -232,7 +257,8 @@ pub async fn get_object(
     State(store): State<SharedStore>,
     Path((bucket, key)): Path<(String, String)>,
 ) -> Response {
-    debug!("GetObject: {}/{}", bucket, key);
+    let _span = tracing::info_span!("GetObject", bucket = %bucket, key = %key).entered();
+    debug!("Downloading object");
 
     match store.get_object(&bucket, &key) {
         Ok(obj) => {
@@ -255,10 +281,10 @@ pub async fn get_object(
             )
                 .into_response()
         }
-        Err(crate::storage::StoreError::NoSuchBucket) => {
+        Err(crate::storage::StoreError::NoSuchBucket(_)) => {
             ApiError::NoSuchBucket(bucket).into_response()
         }
-        Err(crate::storage::StoreError::NoSuchKey) => {
+        Err(crate::storage::StoreError::NoSuchKey(_)) => {
             ApiError::NoSuchKey(format!("/{}/{}", bucket, key)).into_response()
         }
         Err(e) => ApiError::from(e).into_response(),
@@ -270,7 +296,8 @@ pub async fn head_object(
     State(store): State<SharedStore>,
     Path((bucket, key)): Path<(String, String)>,
 ) -> Response {
-    debug!("HeadObject: {}/{}", bucket, key);
+    let _span = tracing::info_span!("HeadObject", bucket = %bucket, key = %key).entered();
+    debug!("Checking object metadata");
 
     match store.head_object(&bucket, &key) {
         Ok(obj) => {
@@ -290,7 +317,7 @@ pub async fn head_object(
             )
                 .into_response()
         }
-        Err(crate::storage::StoreError::NoSuchKey) | Err(crate::storage::StoreError::NoSuchBucket) => {
+        Err(crate::storage::StoreError::NoSuchKey(_)) | Err(crate::storage::StoreError::NoSuchBucket(_)) => {
             StatusCode::NOT_FOUND.into_response()
         }
         Err(e) => ApiError::from(e).into_response(),
@@ -302,11 +329,12 @@ pub async fn delete_object(
     State(store): State<SharedStore>,
     Path((bucket, key)): Path<(String, String)>,
 ) -> Response {
-    info!("DeleteObject: {}/{}", bucket, key);
+    let _span = tracing::info_span!("DeleteObject", bucket = %bucket, key = %key).entered();
+    info!("Deleting object");
 
     match store.delete_object(&bucket, &key) {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(crate::storage::StoreError::NoSuchBucket) => {
+        Err(crate::storage::StoreError::NoSuchBucket(_)) => {
             ApiError::NoSuchBucket(bucket).into_response()
         }
         Err(e) => ApiError::from(e).into_response(),
@@ -317,9 +345,11 @@ pub async fn delete_object(
 pub async fn not_found(req: axum::http::Request<axum::body::Body>) -> Response {
     let method = req.method().to_string();
     let uri = req.uri().to_string();
-    info!("404 Not Found: {} {}", method, uri);
+    let _span = tracing::info_span!("NotFound", method = %method, uri = %uri).entered();
+    info!("Endpoint not found");
     
     let request_id = uuid::Uuid::new_v4().to_string();
+    let now = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
     let err = crate::xml::S3Error {
         code: "NotFound".to_string(),
         message: format!("The specified resource was not found. (Path: {})", uri),
@@ -328,5 +358,13 @@ pub async fn not_found(req: axum::http::Request<axum::body::Body>) -> Response {
     };
 
     let body = crate::xml::to_xml(&err).unwrap_or_else(|_| "<Error/>".to_string());
-    (StatusCode::NOT_FOUND, [("Content-Type", "application/xml")], body).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        [
+            ("Content-Type", "application/xml"),
+            (header::DATE.as_str(), now.as_str()),
+        ],
+        body,
+    )
+        .into_response()
 }

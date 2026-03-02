@@ -39,11 +39,12 @@ pub struct ObjectStore {
 
 #[derive(Debug)]
 pub enum StoreError {
-    NoSuchBucket,
-    NoSuchKey,
-    BucketAlreadyExists,
+    NoSuchBucket(String),
+    NoSuchKey(String),
+    BucketAlreadyExists(String),
     EntityTooLarge,
-    BucketNotEmpty,
+    BucketNotEmpty(String),
+    InvalidBucketName(String),
 }
 
 impl ObjectStore {
@@ -54,17 +55,18 @@ impl ObjectStore {
     // ─── Bucket operations ────────────────────────────────────────────────────
 
     pub fn create_bucket(&self, bucket: &str) -> Result<(), StoreError> {
+        self.validate_bucket_name(bucket)?;
         if self.buckets.contains_key(bucket) {
-            return Err(StoreError::BucketAlreadyExists);
+            return Err(StoreError::BucketAlreadyExists(bucket.to_string()));
         }
         self.buckets.insert(bucket.to_string(), DashMap::new());
         Ok(())
     }
 
     pub fn delete_bucket(&self, bucket: &str) -> Result<(), StoreError> {
-        let entry = self.buckets.get(bucket).ok_or(StoreError::NoSuchBucket)?;
+        let entry = self.buckets.get(bucket).ok_or_else(|| StoreError::NoSuchBucket(bucket.to_string()))?;
         if !entry.is_empty() {
-            return Err(StoreError::BucketNotEmpty);
+            return Err(StoreError::BucketNotEmpty(bucket.to_string()));
         }
         drop(entry);
         self.buckets.remove(bucket);
@@ -101,7 +103,7 @@ impl ObjectStore {
         let bucket_map = self
             .buckets
             .get(bucket)
-            .ok_or(StoreError::NoSuchBucket)?;
+            .ok_or_else(|| StoreError::NoSuchBucket(bucket.to_string()))?;
 
         let etag = format!("{:x}", md5::compute(&data));
         let now = Utc::now();
@@ -130,14 +132,14 @@ impl ObjectStore {
         let bucket_map = self
             .buckets
             .get(bucket)
-            .ok_or(StoreError::NoSuchBucket)?;
+            .ok_or_else(|| StoreError::NoSuchBucket(bucket.to_string()))?;
 
-        let obj = bucket_map.get(key).ok_or(StoreError::NoSuchKey)?;
+        let obj = bucket_map.get(key).ok_or_else(|| StoreError::NoSuchKey(key.to_string()))?;
 
         if obj.is_expired() {
             drop(obj);
             bucket_map.remove(key);
-            return Err(StoreError::NoSuchKey);
+            return Err(StoreError::NoSuchKey(key.to_string()));
         }
 
         Ok(Arc::clone(obj.value()))
@@ -152,7 +154,7 @@ impl ObjectStore {
         let bucket_map = self
             .buckets
             .get(bucket)
-            .ok_or(StoreError::NoSuchBucket)?;
+            .ok_or_else(|| StoreError::NoSuchBucket(bucket.to_string()))?;
 
         bucket_map.remove(key);
         Ok(())
@@ -169,7 +171,7 @@ impl ObjectStore {
         let bucket_map = self
             .buckets
             .get(bucket)
-            .ok_or(StoreError::NoSuchBucket)?;
+            .ok_or_else(|| StoreError::NoSuchBucket(bucket.to_string()))?;
 
         let now = Utc::now();
         let prefix = prefix.unwrap_or("");
@@ -256,6 +258,22 @@ impl ObjectStore {
 
         removed
     }
+
+    fn validate_bucket_name(&self, bucket: &str) -> Result<(), StoreError> {
+        if bucket.len() < 3 || bucket.len() > 63 {
+            return Err(StoreError::InvalidBucketName(bucket.to_string()));
+        }
+        if !bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-') {
+            return Err(StoreError::InvalidBucketName(bucket.to_string()));
+        }
+        if bucket.starts_with('.') || bucket.ends_with('.') || bucket.starts_with('-') || bucket.ends_with('-') {
+            return Err(StoreError::InvalidBucketName(bucket.to_string()));
+        }
+        if bucket.contains("..") {
+            return Err(StoreError::InvalidBucketName(bucket.to_string()));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -292,7 +310,7 @@ mod tests {
         // Duplicate
         assert!(matches!(
             store.create_bucket(bucket),
-            Err(StoreError::BucketAlreadyExists)
+            Err(StoreError::BucketAlreadyExists(_))
         ));
 
         // List
@@ -307,14 +325,14 @@ mod tests {
         // Delete (non-existent)
         assert!(matches!(
             store.delete_bucket(bucket),
-            Err(StoreError::NoSuchBucket)
+            Err(StoreError::NoSuchBucket(_))
         ));
     }
 
     #[test]
     fn test_object_crud() {
         let store = ObjectStore::new();
-        let bucket = "b1";
+        let bucket = "bucket-b1";
         let key = "k1";
         let data = Bytes::from("hello");
 
@@ -339,7 +357,7 @@ mod tests {
         store.delete_object(bucket, key).unwrap();
         assert!(matches!(
             store.get_object(bucket, key),
-            Err(StoreError::NoSuchKey)
+            Err(StoreError::NoSuchKey(_))
         ));
     }
 
@@ -366,7 +384,7 @@ mod tests {
         // Should be gone (lazy removal)
         assert!(matches!(
             store.get_object(bucket, key),
-            Err(StoreError::NoSuchKey)
+            Err(StoreError::NoSuchKey(_))
         ));
     }
 
