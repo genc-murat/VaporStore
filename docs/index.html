@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VaporStore | High-Performance S3 Compatible Object Storage</title>
     <meta name="description"
-        content="Minimal, fast, S3-compatible object storage with optional disk persistence. Built in Rust for maximum performance.">
+        content="High-performance, S3-compatible object storage with LRU eviction, async WAL, and Prometheus metrics. Built in Rust.">
     <link rel="stylesheet" href="style.css">
 </head>
 
@@ -41,8 +41,8 @@
 
         <section id="features" class="container reveal">
             <div class="section-title">
-                <h2>Designed for Speed.</h2>
-                <p>Advanced features meets minimalist implementation.</p>
+                <h2>Performance-Optimized by Design.</h2>
+                <p>Advanced features for modern cloud-native applications.</p>
             </div>
             <div class="features-grid">
                 <div class="feature-card glass">
@@ -51,13 +51,23 @@
                 </div>
                 <div class="feature-card glass">
                     <h3><span>🦀</span> Rust Core</h3>
-                    <p>Built from the ground up for safety and speed. Minimal memory footprint with massive throughput.
-                    </p>
+                    <p>Built from the ground up for safety and speed. Minimal memory footprint with massive throughput.</p>
                 </div>
                 <div class="feature-card glass">
                     <h3><span>💾</span> Hybrid Persistence</h3>
-                    <p>In-memory speed with industrial-grade durability. Write-Ahead Logs (WAL) and Snapshots for total
-                        safety.</p>
+                    <p>In-memory speed with industrial-grade durability. Async Write-Ahead Logs (WAL) with batching for high throughput.</p>
+                </div>
+                <div class="feature-card glass">
+                    <h3><span>🔍</span> Prefix Index</h3>
+                    <p>O(log n) list operations using BTreeMap-based indexing. 100x faster than full bucket scans.</p>
+                </div>
+                <div class="feature-card glass">
+                    <h3><span>🧠</span> LRU Eviction</h3>
+                    <p>Automatic memory management with configurable limits. Least-recently-used objects evicted when limit reached.</p>
+                </div>
+                <div class="feature-card glass">
+                    <h3><span>📊</span> Prometheus Metrics</h3>
+                    <p>Full observability with latency histograms (p50, p95, p99), request counters, and in-flight tracking.</p>
                 </div>
             </div>
         </section>
@@ -145,7 +155,7 @@
                     <div class="endpoint-item">
                         <span class="method get">GET</span>
                         <span class="path">/metrics</span>
-                        <span class="desc">Prometheus monitoring metrics</span>
+                        <span class="desc">Prometheus metrics (latency histograms, counters, gauges)</span>
                     </div>
                 </div>
             </div>
@@ -220,16 +230,33 @@ client.PutObject(ctx, &s3.PutObjectInput{
                 <p style="margin-bottom: 1rem; color: var(--accent-blue);">Pull and Run:</p>
                 <code
                     style="display: block; background: rgba(0,0,0,0.3); padding: 1.5rem; border-radius: 12px; margin-bottom: 2rem;">
-                    docker pull muratgenc/vaporstore:v0.1.6<br>
-                    docker run -p 9353:9353 muratgenc/vaporstore:v0.1.6
+                    docker pull muratgenc/vaporstore:v0.3.0<br>
+                    docker run -p 9353:9353 muratgenc/vaporstore:v0.3.0
                 </code>
 
-                <p style="margin-bottom: 1rem; color: var(--accent-purple);">Test Connection:</p>
+                <p style="margin-bottom: 1rem; color: var(--accent-purple);">Advanced Configuration:</p>
+                <code
+                    style="display: block; background: rgba(0,0,0,0.3); padding: 1.5rem; border-radius: 12px; margin-bottom: 2rem;">
+                    docker run -p 9353:9353 \<br>
+                    &nbsp;&nbsp;-e VAPORSTORE_PERSISTENCE=true \<br>
+                    &nbsp;&nbsp;-e VAPORSTORE_MAX_MEMORY=536870912 \<br>
+                    &nbsp;&nbsp;-v vaporstore_data:/app/data \<br>
+                    &nbsp;&nbsp;muratgenc/vaporstore:v0.3.0
+                </code>
+
+                <p style="margin-bottom: 1rem; color: var(--accent-pink);">Test Connection:</p>
                 <code style="display: block; background: rgba(0,0,0,0.3); padding: 1.5rem; border-radius: 12px;">
                     export AWS_ACCESS_KEY_ID=any<br>
                     export AWS_SECRET_ACCESS_KEY=any<br>
                     aws --endpoint-url http://localhost:9353 s3 mb s3://test-bucket
                 </code>
+
+                <p style="margin-top: 1.5rem; color: var(--text-secondary); font-size: 0.9rem;">
+                    <strong>Environment Variables:</strong><br>
+                    VAPORSTORE_MAX_MEMORY: Memory limit in bytes (0 = unlimited)<br>
+                    VAPORSTORE_PERSISTENCE: Enable disk persistence (true/false)<br>
+                    VAPORSTORE_MAX_OBJECT_SIZE: Max object size (default: 5MB)
+                </p>
             </div>
         </section>
     </main>
