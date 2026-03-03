@@ -3,6 +3,9 @@ pub mod auth;
 pub mod config;
 pub mod error;
 pub mod hybrid;
+pub mod index;
+pub mod lru;
+pub mod metrics;
 pub mod persistence;
 pub mod storage;
 pub mod xml;
@@ -35,7 +38,8 @@ pub fn app_with_config(store: api::SharedStore, config: Config) -> Router {
         .layer(CorsLayer::permissive())
         .layer(CompressionLayer::new())
         .layer(DefaultBodyLimit::max(body_limit))
-        .layer(axum::middleware::from_fn(auth::auth_middleware));
+        .layer(axum::middleware::from_fn(auth::auth_middleware))
+        .layer(axum::middleware::from_fn(metrics::metrics_middleware));
 
     let mut router = Router::new()
         // Service-level

@@ -520,8 +520,32 @@ pub async fn health(State(store): State<SharedStore>) -> Response {
 
 #[debug_handler]
 pub async fn metrics(State(store): State<SharedStore>) -> Response {
+    // Get basic storage metrics
     let (buckets, objects, bytes) = store.stats().await;
+    
+    // Get Prometheus metrics (use lazy init for tests)
+    let prometheus_metrics = {
+        let registry = match crate::metrics::REGISTRY.get() {
+            Some(r) => r,
+            None => crate::metrics::get_or_init_default(),
+        };
+        
+        match registry.gather() {
+            mfs if !mfs.is_empty() => {
+                use prometheus::Encoder;
+                let mut buffer = Vec::new();
+                let encoder = prometheus::TextEncoder::new();
+                if encoder.encode(&mfs, &mut buffer).is_ok() {
+                    String::from_utf8_lossy(&buffer).to_string()
+                } else {
+                    String::new()
+                }
+            }
+            _ => String::new(),
+        }
+    };
 
+    // Combine basic and histogram metrics
     let body = format!(
         "# HELP vaporstore_buckets_total Total number of buckets\n\
          # TYPE vaporstore_buckets_total gauge\n\
@@ -531,8 +555,9 @@ pub async fn metrics(State(store): State<SharedStore>) -> Response {
          vaporstore_objects_total {}\n\
          # HELP vaporstore_storage_bytes Total size of objects in bytes\n\
          # TYPE vaporstore_storage_bytes gauge\n\
-         vaporstore_storage_bytes {}\n",
-        buckets, objects, bytes
+         vaporstore_storage_bytes {}\n\
+         {}",
+        buckets, objects, bytes, prometheus_metrics
     );
 
     (

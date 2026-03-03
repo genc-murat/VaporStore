@@ -1,6 +1,6 @@
 [package]
 name = "vaporstore"
-version = "0.2.5"
+version = "0.3.0"
 edition = "2021"
 description = "A minimal, fast, in-memory S3-compatible object storage"
 
@@ -31,6 +31,8 @@ async-trait = "0.1.89"
 tower_governor = "0.6"
 governor = "0.8"
 bincode = "1"
+socket2 = "0.5"
+prometheus = "0.13"
 
 [dev-dependencies]
 tempfile = "3"

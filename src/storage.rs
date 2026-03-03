@@ -8,6 +8,8 @@ use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
 
 use crate::config::Config;
+use crate::index::PrefixIndex;
+use crate::lru::LruCache;
 
 /// A single stored object with metadata and TTL.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -32,8 +34,30 @@ impl StorageObject {
 /// Per-bucket storage: key → Arc<StorageObject> (zero-copy on read)
 type BucketMap = DashMap<String, Arc<StorageObject>>;
 
-/// Bucket entry: (creation_date, object_map)
-type BucketEntry = (DateTime<Utc>, BucketMap);
+/// Bucket entry: (creation_date, object_map, prefix_index)
+struct BucketEntry {
+    created_at: DateTime<Utc>,
+    objects: BucketMap,
+    index: PrefixIndex,
+}
+
+impl BucketEntry {
+    fn new() -> Self {
+        Self {
+            created_at: Utc::now(),
+            objects: DashMap::new(),
+            index: PrefixIndex::new(),
+        }
+    }
+
+    fn with_created_at(created_at: DateTime<Utc>) -> Self {
+        Self {
+            created_at,
+            objects: DashMap::new(),
+            index: PrefixIndex::new(),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct MultipartUpload {
@@ -118,6 +142,7 @@ pub struct InMemoryBackend {
     config: Config,
     object_count: AtomicUsize,
     total_bytes: AtomicUsize,
+    lru: Option<Arc<LruCache>>,
 }
 
 impl InMemoryBackend {
@@ -126,12 +151,19 @@ impl InMemoryBackend {
     }
 
     pub fn with_config(config: Config) -> Self {
+        let lru = if config.max_memory_bytes > 0 {
+            Some(Arc::new(LruCache::new(config.max_memory_bytes)))
+        } else {
+            None
+        };
+        
         Self {
             buckets: DashMap::new(),
             uploads: DashMap::new(),
             config,
             object_count: AtomicUsize::new(0),
             total_bytes: AtomicUsize::new(0),
+            lru,
         }
     }
 
@@ -156,17 +188,17 @@ impl InMemoryBackend {
     /// Insert a bucket with a specific creation date (used during restore).
     pub fn insert_bucket_raw(&self, name: &str, created_at: DateTime<Utc>) {
         if !self.buckets.contains_key(name) {
-            self.buckets.insert(name.to_string(), (created_at, DashMap::new()));
+            self.buckets.insert(name.to_string(), BucketEntry::with_created_at(created_at));
         }
     }
 
     /// Remove a bucket directly (used during WAL replay).
     pub fn remove_bucket_raw(&self, name: &str) {
-        if let Some((_, (_, bucket_map))) = self.buckets.remove(name) {
-            for entry in bucket_map.iter() {
-                self.total_bytes.fetch_sub(entry.value().size, Ordering::Relaxed);
+        if let Some((_, entry)) = self.buckets.remove(name) {
+            for obj in entry.objects.iter() {
+                self.total_bytes.fetch_sub(obj.value().size, Ordering::Relaxed);
             }
-            self.object_count.fetch_sub(bucket_map.len(), Ordering::Relaxed);
+            self.object_count.fetch_sub(entry.objects.len(), Ordering::Relaxed);
         }
     }
 
@@ -175,11 +207,12 @@ impl InMemoryBackend {
         if let Some(entry) = self.buckets.get(bucket) {
             let key = obj.key.clone();
             let size = obj.size;
-            let old = entry.value().1.insert(key, Arc::new(obj));
+            let old = entry.objects.insert(key.clone(), Arc::new(obj));
             if let Some(old_obj) = old {
                 self.total_bytes.fetch_sub(old_obj.size, Ordering::Relaxed);
             } else {
                 self.object_count.fetch_add(1, Ordering::Relaxed);
+                entry.index.insert(&key);
             }
             self.total_bytes.fetch_add(size, Ordering::Relaxed);
         }
@@ -188,9 +221,10 @@ impl InMemoryBackend {
     /// Remove an object directly (used during WAL replay).
     pub fn remove_object_raw(&self, bucket: &str, key: &str) {
         if let Some(entry) = self.buckets.get(bucket) {
-            if let Some((_, removed)) = entry.value().1.remove(key) {
+            if let Some((_, removed)) = entry.objects.remove(key) {
                 self.object_count.fetch_sub(1, Ordering::Relaxed);
                 self.total_bytes.fetch_sub(removed.size, Ordering::Relaxed);
+                entry.index.remove(key);
             }
         }
     }
@@ -204,14 +238,15 @@ impl InMemoryBackend {
             .iter()
             .map(|entry| {
                 let name = entry.key().clone();
-                let (created_at, bucket_map) = entry.value();
-                let objects: Vec<StorageObject> = bucket_map
+                let bucket_entry = entry.value();
+                let objects: Vec<StorageObject> = bucket_entry
+                    .objects
                     .iter()
                     .map(|obj_ref| obj_ref.value().as_ref().clone())
                     .collect();
                 BucketSnapshot {
                     name,
-                    created_at: *created_at,
+                    created_at: bucket_entry.created_at,
                     objects,
                 }
             })
@@ -233,13 +268,13 @@ impl StorageBackend for InMemoryBackend {
                 format!("Maximum number of buckets ({}) reached", self.config.max_buckets),
             ));
         }
-        self.buckets.insert(bucket.to_string(), (Utc::now(), DashMap::new()));
+        self.buckets.insert(bucket.to_string(), BucketEntry::new());
         Ok(())
     }
 
     async fn delete_bucket(&self, bucket: &str) -> Result<(), StoreError> {
         let entry = self.buckets.get(bucket).ok_or_else(|| StoreError::NoSuchBucket(bucket.to_string()))?;
-        if !entry.value().1.is_empty() {
+        if !entry.value().objects.is_empty() {
             return Err(StoreError::BucketNotEmpty(bucket.to_string()));
         }
         drop(entry);
@@ -250,7 +285,7 @@ impl StorageBackend for InMemoryBackend {
     async fn list_buckets(&self) -> Vec<(String, DateTime<Utc>)> {
         self.buckets
             .iter()
-            .map(|e| (e.key().clone(), e.value().0))
+            .map(|e| (e.key().clone(), e.value().created_at))
             .collect()
     }
 
@@ -275,11 +310,11 @@ impl StorageBackend for InMemoryBackend {
             .buckets
             .get(bucket)
             .ok_or_else(|| StoreError::NoSuchBucket(bucket.to_string()))?;
-        let bucket_map = &bucket_entry.value().1;
 
+        let is_new = !bucket_entry.objects.contains_key(key);
         if self.config.max_objects_per_bucket > 0
-            && bucket_map.len() >= self.config.max_objects_per_bucket
-            && !bucket_map.contains_key(key)
+            && bucket_entry.objects.len() >= self.config.max_objects_per_bucket
+            && is_new
         {
             return Err(StoreError::InvalidRequest(
                 format!("Maximum objects per bucket ({}) reached", self.config.max_objects_per_bucket),
@@ -304,11 +339,51 @@ impl StorageBackend for InMemoryBackend {
             metadata,
         });
 
-        let old = bucket_map.insert(key.to_string(), obj);
+        // Check memory limit and evict if necessary
+        if let Some(ref lru) = self.lru {
+            let full_key = format!("{}/{}", bucket, key);
+            
+            // Get old size if updating
+            let old_size = bucket_entry.objects.get(&full_key).map(|o| o.size).unwrap_or(0);
+            
+            // Add to LRU (or update if exists)
+            lru.add(&full_key, size).await;
+            
+            // Evict LRU objects if over limit
+            while lru.is_over_limit() {
+                let lru_keys = lru.get_lru_keys(10).await;
+                if lru_keys.is_empty() {
+                    break;
+                }
+                
+                for lru_key in lru_keys {
+                    // Parse bucket and key from full key
+                    if let Some((lru_bucket, lru_obj_key)) = lru_key.split_once('/') {
+                        if let Some(be) = self.buckets.get(lru_bucket) {
+                            if let Some((_, removed)) = be.value().objects.remove(lru_obj_key) {
+                                be.value().index.remove(lru_obj_key);
+                                lru.remove(&lru_key, removed.size).await;
+                                self.object_count.fetch_sub(1, Ordering::Relaxed);
+                                self.total_bytes.fetch_sub(removed.size, Ordering::Relaxed);
+                                tracing::info!("Evicted object {} due to memory limit", lru_key);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Record access for the new/updated object
+            if old_size > 0 {
+                lru.update_size(&full_key, old_size, size).await;
+            }
+        }
+
+        let old = bucket_entry.objects.insert(key.to_string(), obj);
         if let Some(old_obj) = old {
             self.total_bytes.fetch_sub(old_obj.size, Ordering::Relaxed);
         } else {
             self.object_count.fetch_add(1, Ordering::Relaxed);
+            bucket_entry.index.insert(key);
         }
         self.total_bytes.fetch_add(size, Ordering::Relaxed);
         Ok(etag)
@@ -319,17 +394,31 @@ impl StorageBackend for InMemoryBackend {
             .buckets
             .get(bucket)
             .ok_or_else(|| StoreError::NoSuchBucket(bucket.to_string()))?;
-        let bucket_map = &bucket_entry.value().1;
 
-        let obj = bucket_map.get(key).ok_or_else(|| StoreError::NoSuchKey(key.to_string()))?;
+        let obj = bucket_entry.objects.get(key).ok_or_else(|| StoreError::NoSuchKey(key.to_string()))?;
 
         if obj.is_expired() {
             let size = obj.size;
+            let key_clone = key.to_string();
             drop(obj);
-            bucket_map.remove(key);
+            bucket_entry.objects.remove(&key_clone);
+            bucket_entry.index.remove(&key_clone);
+            
+            // Remove from LRU
+            if let Some(ref lru) = self.lru {
+                let full_key = format!("{}/{}", bucket, key_clone);
+                lru.remove(&full_key, size).await;
+            }
+            
             self.object_count.fetch_sub(1, Ordering::Relaxed);
             self.total_bytes.fetch_sub(size, Ordering::Relaxed);
             return Err(StoreError::NoSuchKey(key.to_string()));
+        }
+
+        // Record access in LRU
+        if let Some(ref lru) = self.lru {
+            let full_key = format!("{}/{}", bucket, key);
+            lru.record_access(&full_key).await;
         }
 
         Ok(Arc::clone(obj.value()))
@@ -345,9 +434,16 @@ impl StorageBackend for InMemoryBackend {
             .get(bucket)
             .ok_or_else(|| StoreError::NoSuchBucket(bucket.to_string()))?;
 
-        if let Some((_, removed)) = bucket_entry.value().1.remove(key) {
+        if let Some((_, removed)) = bucket_entry.objects.remove(key) {
             self.object_count.fetch_sub(1, Ordering::Relaxed);
             self.total_bytes.fetch_sub(removed.size, Ordering::Relaxed);
+            bucket_entry.index.remove(key);
+            
+            // Remove from LRU
+            if let Some(ref lru) = self.lru {
+                let full_key = format!("{}/{}", bucket, key);
+                lru.remove(&full_key, removed.size).await;
+            }
         }
         Ok(())
     }
@@ -363,31 +459,34 @@ impl StorageBackend for InMemoryBackend {
             .buckets
             .get(bucket)
             .ok_or_else(|| StoreError::NoSuchBucket(bucket.to_string()))?;
-        let bucket_map = &bucket_entry.value().1;
 
-        let now = Utc::now();
         let prefix = prefix.unwrap_or("");
         let delimiter = delimiter.unwrap_or("");
+        let now = Utc::now();
 
-        let est_cap = max_keys.min(bucket_map.len());
-        let mut contents: Vec<ObjectMeta> = Vec::with_capacity(est_cap);
+        // Use prefix index to get candidate keys efficiently
+        let candidate_keys = bucket_entry.index.get_prefix_keys(prefix, max_keys * 2);
+
+        let mut contents: Vec<ObjectMeta> = Vec::with_capacity(max_keys);
         let mut common_prefixes: HashSet<String> = HashSet::new();
         let mut expired_keys: Vec<String> = Vec::new();
 
-        for entry in bucket_map.iter() {
-            let obj = entry.value();
+        for key in candidate_keys {
+            // Get the actual object
+            let obj_ref = match bucket_entry.objects.get(&key) {
+                Some(obj) => obj,
+                None => continue, // Object was removed concurrently
+            };
 
-            if obj.expires_at <= now {
-                expired_keys.push(obj.key.clone());
+            // Check expiry
+            if obj_ref.expires_at <= now {
+                expired_keys.push(key.clone());
                 continue;
             }
 
-            if !obj.key.starts_with(prefix) {
-                continue;
-            }
-
+            // Apply delimiter logic
             if !delimiter.is_empty() {
-                let after_prefix = &obj.key[prefix.len()..];
+                let after_prefix = &obj_ref.key[prefix.len()..];
                 if let Some(pos) = after_prefix.find(delimiter) {
                     let common = format!("{}{}{}", prefix, &after_prefix[..pos], delimiter);
                     common_prefixes.insert(common);
@@ -396,10 +495,10 @@ impl StorageBackend for InMemoryBackend {
             }
 
             contents.push(ObjectMeta {
-                key: obj.key.clone(),
-                size: obj.size,
-                etag: obj.etag.clone(),
-                last_modified: obj.last_modified,
+                key: obj_ref.key.clone(),
+                size: obj_ref.size,
+                etag: obj_ref.etag.clone(),
+                last_modified: obj_ref.last_modified,
             });
 
             if contents.len() >= max_keys {
@@ -409,11 +508,13 @@ impl StorageBackend for InMemoryBackend {
 
         drop(bucket_entry);
 
+        // Clean up expired keys
         if !expired_keys.is_empty() {
-            if let Some(bm) = self.buckets.get(bucket) {
+            if let Some(be) = self.buckets.get(bucket) {
                 for k in &expired_keys {
-                    if let Some((_, removed)) = bm.value().1.remove(k) {
+                    if let Some((_, removed)) = be.value().objects.remove(k) {
                         self.total_bytes.fetch_sub(removed.size, Ordering::Relaxed);
+                        be.value().index.remove(k);
                     }
                 }
                 self.object_count.fetch_sub(expired_keys.len(), Ordering::Relaxed);
@@ -437,17 +538,26 @@ impl StorageBackend for InMemoryBackend {
         let mut removed = 0usize;
 
         for bucket_ref in self.buckets.iter() {
-            let bucket_map = &bucket_ref.value().1;
-            let before = bucket_map.len();
-            bucket_map.retain(|_, obj| {
-                if obj.expires_at <= now {
-                    self.total_bytes.fetch_sub(obj.size, Ordering::Relaxed);
-                    false
-                } else {
-                    true
+            let bucket_entry = bucket_ref.value();
+            let before = bucket_entry.objects.len();
+            
+            // Collect expired keys first to avoid holding locks during removal
+            let mut expired_keys = Vec::new();
+            for obj_ref in bucket_entry.objects.iter() {
+                if obj_ref.expires_at <= now {
+                    expired_keys.push(obj_ref.key().clone());
                 }
-            });
-            let count = before - bucket_map.len();
+            }
+
+            // Remove expired objects
+            for key in &expired_keys {
+                if let Some((_, removed_obj)) = bucket_entry.objects.remove(key) {
+                    self.total_bytes.fetch_sub(removed_obj.size, Ordering::Relaxed);
+                    bucket_entry.index.remove(key);
+                }
+            }
+
+            let count = before - bucket_entry.objects.len();
             self.object_count.fetch_sub(count, Ordering::Relaxed);
             removed += count;
         }
@@ -501,7 +611,7 @@ impl StorageBackend for InMemoryBackend {
 
         let total_size: usize = upload.parts.iter().map(|e| e.value().1.len()).sum();
         let mut combined_data = Vec::with_capacity(total_size);
-        
+
         let mut sorted_parts = parts_list;
         sorted_parts.sort_by_key(|p| p.0);
 
@@ -515,7 +625,7 @@ impl StorageBackend for InMemoryBackend {
         }
 
         let result_etag = self.put_object(bucket, key, Bytes::from(combined_data), upload.content_type.clone(), None, upload.metadata.clone()).await?;
-        
+
         self.uploads.remove(upload_id);
 
         Ok(result_etag)

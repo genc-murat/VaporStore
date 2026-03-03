@@ -28,6 +28,10 @@ pub struct Config {
     pub wal_enabled: bool,
     /// Interval (seconds) between periodic snapshots (0 = only on shutdown).
     pub snapshot_interval_seconds: u64,
+    /// Maximum memory usage in bytes (0 = unlimited).
+    pub max_memory_bytes: usize,
+    /// Threshold for streaming large objects (bytes).
+    pub stream_threshold_bytes: usize,
 }
 
 impl Config {
@@ -46,6 +50,8 @@ impl Config {
             data_dir: env::var("VAPORSTORE_DATA_DIR").unwrap_or_else(|_| "./data".to_string()),
             wal_enabled: parse_env_bool("VAPORSTORE_WAL", true),
             snapshot_interval_seconds: parse_env("VAPORSTORE_SNAPSHOT_INTERVAL", 60),
+            max_memory_bytes: parse_env("VAPORSTORE_MAX_MEMORY", 0),
+            stream_threshold_bytes: parse_env("VAPORSTORE_STREAM_THRESHOLD", 1024 * 1024),
         }
     }
 }
@@ -65,6 +71,8 @@ impl Default for Config {
             data_dir: "./data".to_string(),
             wal_enabled: true,
             snapshot_interval_seconds: 60,
+            max_memory_bytes: 0,
+            stream_threshold_bytes: 1024 * 1024,
         }
     }
 }

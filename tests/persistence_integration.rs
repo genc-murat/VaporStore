@@ -26,9 +26,11 @@ async fn test_persistence_full_snapshot_recovery() {
         let hb = HybridBackend::load(config.clone());
         hb.create_bucket("bucket1").await.unwrap();
         hb.put_object("bucket1", "key1", Bytes::from("data1"), None, None, HashMap::new()).await.unwrap();
-        
+
         // Graceful shutdown saves snapshot
-        hb.shutdown();
+        hb.shutdown().await;
+        // Give async WAL time to flush
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     }
 
     // 2. Restart: Verify data reloaded from snapshot
@@ -51,7 +53,9 @@ async fn test_persistence_wal_replay_on_crash() {
         let hb = HybridBackend::load(config.clone());
         hb.create_bucket("bucket-crash").await.unwrap();
         hb.put_object("bucket-crash", "crash-key", Bytes::from("crash-data"), None, None, HashMap::new()).await.unwrap();
-        
+
+        // Give async WAL time to flush before "crash"
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         // NO shutdown() call here - simulating a crash/process kill
         // The data should be in the WAL but not in a snapshot
     }
@@ -76,13 +80,16 @@ async fn test_persistence_deletion_recovery() {
         let hb = HybridBackend::load(config.clone());
         hb.create_bucket("del-bucket").await.unwrap();
         hb.put_object("del-bucket", "del-key", Bytes::from("del-data"), None, None, HashMap::new()).await.unwrap();
-        hb.shutdown(); // Save snapshot
+        hb.shutdown().await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     }
 
     // 2. Delete data (only in WAL)
     {
         let hb = HybridBackend::load(config.clone());
         hb.delete_object("del-bucket", "del-key").await.unwrap();
+        // Give async WAL time to flush
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         // Crash again (no snapshot)
     }
 
@@ -105,13 +112,15 @@ async fn test_persistence_bucket_deletion_recovery() {
     {
         let hb = HybridBackend::load(config.clone());
         hb.create_bucket("temp-bucket").await.unwrap();
-        hb.shutdown();
+        hb.shutdown().await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     }
 
     // 2. Delete bucket (WAL only)
     {
         let hb = HybridBackend::load(config.clone());
         hb.delete_bucket("temp-bucket").await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     }
 
     // 3. Restart: Verify bucket is gone

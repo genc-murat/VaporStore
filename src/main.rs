@@ -7,6 +7,7 @@ use vaporstore::{
     hybrid::HybridBackend,
     storage::{InMemoryBackend, StorageBackend},
 };
+use socket2::{Domain, Protocol, Socket, Type};
 
 #[tokio::main]
 async fn main() {
@@ -18,6 +19,11 @@ async fn main() {
                 .as_str(),
         )
         .init();
+
+    // Initialize Prometheus metrics
+    if let Err(e) = vaporstore::metrics::init_metrics() {
+        tracing::warn!("Failed to initialize metrics: {}", e);
+    }
 
     let config = Config::from_env();
     let port = config.port;
@@ -83,9 +89,44 @@ async fn main() {
         config.reaper_interval_seconds,
     );
 
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .expect("Failed to bind");
+    // Create TCP listener with optimized settings
+    let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
+        .expect("Failed to create socket");
+    
+    // Enable TCP keepalive
+    socket
+        .set_keepalive(true)
+        .expect("Failed to set TCP keepalive");
+    
+    // Set keepalive interval (platform-dependent)
+    #[cfg(target_os = "linux")]
+    socket
+        .set_tcp_keepalive(&socket2::TcpKeepalive::new().with_interval(Duration::from_secs(60)))
+        .expect("Failed to set TCP keepalive interval");
+    
+    // Allow address reuse for faster restarts
+    socket
+        .set_reuse_address(true)
+        .expect("Failed to set SO_REUSEADDR");
+    
+    // Set socket buffer sizes for better throughput
+    socket
+        .set_send_buffer_size(256 * 1024)
+        .expect("Failed to set send buffer");
+    socket
+        .set_recv_buffer_size(256 * 1024)
+        .expect("Failed to set recv buffer");
+    
+    socket
+        .bind(&addr.parse::<std::net::SocketAddr>().unwrap().into())
+        .expect("Failed to bind socket");
+    
+    socket
+        .listen(1024)
+        .expect("Failed to listen");
+    
+    let listener = tokio::net::TcpListener::from_std(socket.into())
+        .expect("Failed to convert to tokio listener");
 
     // ── Graceful shutdown ─────────────────────────────────────────────────────
     axum::serve(listener, app)
@@ -95,7 +136,7 @@ async fn main() {
 
     // ── Persist state on shutdown ─────────────────────────────────────────────
     if let Some(ref hb) = hybrid {
-        hb.shutdown();
+        hb.shutdown().await;
     }
 
     info!("VaporStore shut down gracefully.");

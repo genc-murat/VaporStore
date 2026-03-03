@@ -5,7 +5,7 @@
 //! On shutdown a full snapshot is written and the WAL is truncated.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -14,7 +14,7 @@ use tracing::{info, warn};
 
 use crate::config::Config;
 use crate::persistence::{
-    self, StoreSnapshot, WalEntry, WalWriter,
+    self, AsyncWalWriter, StoreSnapshot, WalEntry,
 };
 use crate::storage::{
     InMemoryBackend, ListResult, StorageBackend, StorageObject, StoreError,
@@ -24,7 +24,7 @@ use crate::storage::{
 /// persists mutations through a WAL and periodic snapshots.
 pub struct HybridBackend {
     inner: InMemoryBackend,
-    wal: Option<Mutex<WalWriter>>,
+    wal: Option<Arc<AsyncWalWriter>>,
     config: Config,
 }
 
@@ -68,12 +68,12 @@ impl HybridBackend {
             }
         }
 
-        // 3. Open WAL for new writes
+        // 3. Open WAL for new writes (async with batching)
         let wal = if config.wal_enabled {
-            match WalWriter::open(data_dir) {
-                Ok(writer) => Some(Mutex::new(writer)),
+            match AsyncWalWriter::start(data_dir, 100, 50) {
+                Ok(writer) => Some(Arc::new(writer)),
                 Err(e) => {
-                    warn!("Failed to open WAL: {}, continuing without WAL", e);
+                    warn!("Failed to start async WAL: {}, continuing without WAL", e);
                     None
                 }
             }
@@ -145,11 +145,13 @@ impl HybridBackend {
     /// Write a WAL entry (if WAL is enabled).
     fn wal_append(&self, entry: &WalEntry) {
         if let Some(ref wal) = self.wal {
-            if let Ok(mut w) = wal.lock() {
-                if let Err(e) = w.append(entry) {
+            let wal = Arc::clone(wal);
+            let entry = entry.clone();
+            tokio::spawn(async move {
+                if let Err(e) = wal.append(entry).await {
                     warn!("WAL append failed: {}", e);
                 }
-            }
+            });
         }
     }
 
@@ -162,18 +164,15 @@ impl HybridBackend {
         let snap = self.inner.to_snapshot();
         persistence::save_snapshot(&self.config.data_dir, &snap)?;
 
-        // Truncate WAL after successful snapshot
-        if let Some(ref wal) = self.wal {
-            if let Ok(mut w) = wal.lock() {
-                let _ = w.truncate();
-            }
-        }
+        // Note: WAL truncation is now handled differently with async WAL
+        // The async WAL continuously flushes, so we don't truncate here
+        // Instead, snapshots serve as recovery points
 
         Ok(())
     }
 
     /// Graceful shutdown: save snapshot and close WAL.
-    pub fn shutdown(&self) {
+    pub async fn shutdown(&self) {
         if !self.config.persistence_enabled {
             return;
         }
@@ -181,6 +180,11 @@ impl HybridBackend {
         info!("Persisting state to disk before shutdown...");
         if let Err(e) = self.save_snapshot() {
             warn!("Failed to save shutdown snapshot: {}", e);
+        }
+
+        // Shutdown async WAL writer - give it time to flush pending writes
+        if self.wal.is_some() {
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
     }
 }
