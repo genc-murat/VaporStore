@@ -295,6 +295,16 @@ section {
     color: #c084fc;
 }
 
+.delete {
+    background: rgba(248, 81, 73, 0.2);
+    color: #ff7b72;
+}
+
+.head {
+    background: rgba(88, 166, 255, 0.2);
+    color: #79c0ff;
+}
+
 .path {
     font-family: monospace;
     margin-left: 2rem;

@@ -64,45 +64,89 @@
 
         <section id="api" class="container reveal">
             <div class="section-title">
-                <h2>Unified Endpoints.</h2>
-                <p>Clean, predictable, and fully observable API surface.</p>
+                <h2>API Reference.</h2>
+                <p>Fully compliant S3-style endpoints and system diagnostics.</p>
             </div>
 
             <div class="endpoint-list glass" style="padding: 2rem;">
-                <div class="endpoint-item">
-                    <span class="method get">GET</span>
-                    <span class="path">/</span>
-                    <span class="desc">Host level: List all buckets</span>
+                <!-- Service Level -->
+                <div style="margin-bottom: 2rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 1rem;">
+                    <h4 style="color: var(--accent-blue); margin-bottom: 1rem;">Service Operations</h4>
+                    <div class="endpoint-item">
+                        <span class="method get">GET</span>
+                        <span class="path">/</span>
+                        <span class="desc">List all buckets</span>
+                    </div>
                 </div>
-                <div class="endpoint-item">
-                    <span class="method get">GET</span>
-                    <span class="path">/{bucket}</span>
-                    <span class="desc">Bucket level: List objects</span>
+
+                <!-- Bucket Level -->
+                <div style="margin-bottom: 2rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 1rem;">
+                    <h4 style="color: var(--accent-purple); margin-bottom: 1rem;">Bucket Operations</h4>
+                    <div class="endpoint-item">
+                        <span class="method get">GET</span>
+                        <span class="path">/{bucket}</span>
+                        <span class="desc">List objects (v1 & v2)</span>
+                    </div>
+                    <div class="endpoint-item">
+                        <span class="method put">PUT</span>
+                        <span class="path">/{bucket}</span>
+                        <span class="desc">Create new bucket</span>
+                    </div>
+                    <div class="endpoint-item">
+                        <span class="method head">HEAD</span>
+                        <span class="path">/{bucket}</span>
+                        <span class="desc">Check bucket existence</span>
+                    </div>
+                    <div class="endpoint-item">
+                        <span class="method delete">DELETE</span>
+                        <span class="path">/{bucket}</span>
+                        <span class="desc">Delete empty bucket</span>
+                    </div>
                 </div>
-                <div class="endpoint-item">
-                    <span class="method put">PUT</span>
-                    <span class="path">/{bucket}</span>
-                    <span class="desc">Create infrastructure: New bucket</span>
+
+                <!-- Object Level -->
+                <div style="margin-bottom: 2rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 1rem;">
+                    <h4 style="color: var(--accent-pink); margin-bottom: 1rem;">Object Operations</h4>
+                    <div class="endpoint-item">
+                        <span class="method get">GET</span>
+                        <span class="path">/{bucket}/{key}</span>
+                        <span class="desc">Retrieve object data</span>
+                    </div>
+                    <div class="endpoint-item">
+                        <span class="method put">PUT</span>
+                        <span class="path">/{bucket}/{key}</span>
+                        <span class="desc">Upload object / Copy source</span>
+                    </div>
+                    <div class="endpoint-item">
+                        <span class="method post">POST</span>
+                        <span class="path">/{bucket}/{key}</span>
+                        <span class="desc">Multipart Upload init / complete</span>
+                    </div>
+                    <div class="endpoint-item">
+                        <span class="method head">HEAD</span>
+                        <span class="path">/{bucket}/{key}</span>
+                        <span class="desc">Get metadata / stats</span>
+                    </div>
+                    <div class="endpoint-item">
+                        <span class="method delete">DELETE</span>
+                        <span class="path">/{bucket}/{key}</span>
+                        <span class="desc">Delete object / Abort upload</span>
+                    </div>
                 </div>
-                <div class="endpoint-item">
-                    <span class="method get">GET</span>
-                    <span class="path">/{bucket}/{key}</span>
-                    <span class="desc">Retrieve object: Supports Range mapping</span>
-                </div>
-                <div class="endpoint-item">
-                    <span class="method put">PUT</span>
-                    <span class="path">/{bucket}/{key}</span>
-                    <span class="desc">Upload data: Key-value object mapping</span>
-                </div>
-                <div class="endpoint-item">
-                    <span class="method get">GET</span>
-                    <span class="path">/health</span>
-                    <span class="desc">Diagnostics & Uptime stats</span>
-                </div>
-                <div class="endpoint-item">
-                    <span class="method get">GET</span>
-                    <span class="path">/metrics</span>
-                    <span class="desc">Full Prometheus observability</span>
+
+                <!-- System Level -->
+                <div>
+                    <h4 style="color: var(--text-secondary); margin-bottom: 1rem;">System Diagnostics</h4>
+                    <div class="endpoint-item">
+                        <span class="method get">GET</span>
+                        <span class="path">/health</span>
+                        <span class="desc">System health & version stats</span>
+                    </div>
+                    <div class="endpoint-item">
+                        <span class="method get">GET</span>
+                        <span class="path">/metrics</span>
+                        <span class="desc">Prometheus monitoring metrics</span>
+                    </div>
                 </div>
             </div>
         </section>
