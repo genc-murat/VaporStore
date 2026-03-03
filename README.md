@@ -60,6 +60,8 @@ aws --endpoint-url $ENDPOINT s3 ls s3://my-bucket/
 
 # Download a file
 aws --endpoint-url $ENDPOINT s3 cp s3://my-bucket/myfile.txt ./downloaded.txt
+```
+
 ## SDK Examples
 
 VaporStore works with any S3-compatible SDK. Here are minimal examples:
