@@ -60,6 +60,53 @@ aws --endpoint-url $ENDPOINT s3 ls s3://my-bucket/
 
 # Download a file
 aws --endpoint-url $ENDPOINT s3 cp s3://my-bucket/myfile.txt ./downloaded.txt
+## SDK Examples
+
+VaporStore works with any S3-compatible SDK. Here are minimal examples:
+
+### Rust (aws-sdk-s3)
+```rust
+let config = aws_config::from_env()
+    .endpoint_url("http://localhost:9353")
+    .load().await;
+let client = aws_sdk_s3::Client::new(&config);
+
+client.put_object()
+    .bucket("my-bucket")
+    .key("hello.txt")
+    .body(ByteStream::from_static(b"Hello from Rust!"))
+    .send().await?;
+```
+
+### C# (AWSSDK.S3)
+```csharp
+var config = new AmazonS3Config { 
+    ServiceURL = "http://localhost:9353",
+    ForcePathStyle = true 
+};
+var client = new AmazonS3Client("any", "any", config);
+
+await client.PutObjectAsync(new PutObjectRequest {
+    BucketName = "my-bucket",
+    Key = "hello.txt",
+    ContentBody = "Hello from C#!"
+});
+```
+
+### Go (aws-sdk-go-v2)
+```go
+cfg, _ := config.LoadDefaultConfig(ctx, 
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(s, r string, o ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:9353"}, nil
+        })))
+client := s3.NewFromConfig(cfg, func(o *s3.Options) { o.UsePathStyle = true })
+
+client.PutObject(ctx, &s3.PutObjectInput{
+    Bucket: aws.String("my-bucket"),
+    Key:    aws.String("hello.txt"),
+    Body:   strings.NewReader("Hello from Go!"),
+})
 ```
 
 ## Persistence (Experimental)

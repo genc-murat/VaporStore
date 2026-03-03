@@ -317,6 +317,53 @@ section {
     font-size: 0.9rem;
 }
 
+/* Tabs */
+.tabs-container {
+    margin-top: 2rem;
+}
+
+.tabs-header {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--glass-border);
+    padding-bottom: 1rem;
+}
+
+.tab-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    transition: all 0.3s;
+}
+
+.tab-btn.active {
+    color: var(--accent-blue);
+    background: rgba(14, 165, 233, 0.1);
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.tab-content code {
+    background: rgba(0, 0, 0, 0.5) !important;
+    border: 1px solid var(--glass-border);
+    padding: 2rem !important;
+    border-radius: 12px;
+    font-size: 0.95rem !important;
+    line-height: 1.7 !important;
+}
+
 /* Animations */
 .reveal {
     opacity: 0;
